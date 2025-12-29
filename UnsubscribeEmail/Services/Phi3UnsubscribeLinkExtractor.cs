@@ -77,12 +77,26 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 
     public async Task<string?> ExtractUnsubscribeLinkAsync(string emailBody)
     {
+        // Step 1: Try regex-based extraction first (fast and efficient)
+        _logger.LogInformation("Attempting regex-based extraction...");
+        var regexLink = ExtractUnsubscribeLinkFallback(emailBody);
+        
+        if (!string.IsNullOrEmpty(regexLink))
+        {
+            _logger.LogInformation($"Regex extraction successful: {regexLink}");
+            return regexLink;
+        }
+
+        _logger.LogInformation("Regex extraction failed, falling back to Phi3 model...");
+
+        // Step 2: Fallback to Phi3 model if regex didn't find anything
         await InitializeModelAsync();
 
-        // If model is not available, use fallback method
+        // If model is not available, return null
         if (_model == null || _tokenizer == null)
         {
-            return ExtractUnsubscribeLinkFallback(emailBody);
+            _logger.LogWarning("Phi3 model not available, returning null");
+            return null;
         }
 
         try
@@ -90,11 +104,14 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             // Find the word "unsubscribe" or related keywords and extract context around it
             var contextSnippet = ExtractUnsubscribeContext(emailBody);
             
-            // If no unsubscribe context found, use fallback
+            // If no unsubscribe context found, return null
             if (string.IsNullOrEmpty(contextSnippet))
             {
-                return ExtractUnsubscribeLinkFallback(emailBody);
+                _logger.LogInformation("No unsubscribe context found for model processing");
+                return null;
             }
+
+            _logger.LogInformation("Processing with Phi3 model...");
 
             // Create prompt for the model
             var prompt = $@"Extract the unsubscribe link from the following email. Return only the URL or 'NONE' if no unsubscribe link is found.
@@ -124,12 +141,22 @@ Unsubscribe link:";
             
             // Extract URL from output
             var link = ExtractUrlFromText(output);
+            
+            if (!string.IsNullOrEmpty(link))
+            {
+                _logger.LogInformation($"Phi3 model extraction successful: {link}");
+            }
+            else
+            {
+                _logger.LogInformation("Phi3 model did not find a link");
+            }
+            
             return link;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error using Phi3 model to extract unsubscribe link");
-            return ExtractUnsubscribeLinkFallback(emailBody);
+            return null;
         }
     }
 
