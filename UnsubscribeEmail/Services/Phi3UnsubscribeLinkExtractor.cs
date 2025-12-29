@@ -102,7 +102,30 @@ Unsubscribe link:";
 
     private string? ExtractUnsubscribeLinkFallback(string emailBody)
     {
-        // Fallback method using regex to find unsubscribe links
+        // First, try to find anchor tags with "unsubscribe" in the text
+        var anchorPattern = @"<a[^>]+href=[""']([^""']+)[""'][^>]*>(.*?)</a>";
+        var anchorMatches = System.Text.RegularExpressions.Regex.Matches(emailBody, anchorPattern, 
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        
+        foreach (System.Text.RegularExpressions.Match anchorMatch in anchorMatches)
+        {
+            var anchorText = anchorMatch.Groups[2].Value;
+            var href = anchorMatch.Groups[1].Value;
+            
+            // Check if anchor text or href contains unsubscribe-related keywords
+            if (System.Text.RegularExpressions.Regex.IsMatch(anchorText, @"unsubscribe|opt-out|optout|preferences", 
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            {
+                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                    href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation($"Found unsubscribe link in anchor tag: {href}");
+                    return href;
+                }
+            }
+        }
+
+        // Fallback method using regex to find unsubscribe links directly in URLs
         var patterns = new[]
         {
             @"https?://[^\s<>""']+unsubscribe[^\s<>""']*",
