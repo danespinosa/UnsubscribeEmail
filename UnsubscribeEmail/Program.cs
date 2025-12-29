@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
+using UnsubscribeEmail.Hubs;
 using UnsubscribeEmail.Services;
 using MSGraph = Microsoft.Graph;
 
@@ -37,10 +38,17 @@ if (hasAzureAdConfig)
     builder.Services.AddRazorPages()
         .AddMicrosoftIdentityUI();
     
+    // Add SignalR
+    builder.Services.AddSignalR();
+    
+    // Add HttpClient for REST API calls
+    builder.Services.AddHttpClient();
+    
     // Register services
     builder.Services.AddScoped<IEmailService, EmailService>();
     builder.Services.AddSingleton<IUnsubscribeLinkExtractor, Phi3UnsubscribeLinkExtractor>();
     builder.Services.AddScoped<IUnsubscribeService, UnsubscribeService>();
+    builder.Services.AddSingleton<IUnsubscribeBackgroundService, UnsubscribeBackgroundService>();
 }
 else
 {
@@ -75,6 +83,7 @@ app.MapRazorPages()
 if (hasAzureAdConfig)
 {
     app.MapControllers();
+    app.MapHub<UnsubscribeProgressHub>("/unsubscribeProgressHub");
 }
 
 app.Run();
