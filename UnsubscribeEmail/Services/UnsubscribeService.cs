@@ -5,7 +5,7 @@ namespace UnsubscribeEmail.Services;
 
 public interface IUnsubscribeService
 {
-    Task<List<SenderUnsubscribeInfo>> GetSenderUnsubscribeLinksAsync(string accessToken);
+    Task<List<SenderUnsubscribeInfo>> GetSenderUnsubscribeLinksAsync();
 }
 
 public class UnsubscribeService : IUnsubscribeService
@@ -26,11 +26,11 @@ public class UnsubscribeService : IUnsubscribeService
         _cache = new ConcurrentDictionary<string, SenderUnsubscribeInfo>();
     }
 
-    public async Task<List<SenderUnsubscribeInfo>> GetSenderUnsubscribeLinksAsync(string accessToken)
+    public async Task<List<SenderUnsubscribeInfo>> GetSenderUnsubscribeLinksAsync()
     {
         _logger.LogInformation("Starting to fetch emails and extract unsubscribe links...");
 
-        var emails = await _emailService.GetEmailsFromCurrentYearAsync(accessToken);
+        var emails = await _emailService.GetEmailsFromCurrentYearAsync();
         _logger.LogInformation($"Retrieved {emails.Count} emails from current year");
 
         // Group emails by sender

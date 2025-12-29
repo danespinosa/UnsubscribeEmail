@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Graph;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using UnsubscribeEmail.Services;
@@ -16,6 +17,7 @@ if (hasAzureAdConfig)
     builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
         .AddMicrosoftIdentityWebApp(azureAdSection)
         .EnableTokenAcquisitionToCallDownstreamApi(new[] { "User.Read", "Mail.Read" })
+        .AddMicrosoftGraph(builder.Configuration.GetSection("MicrosoftGraph"))
         .AddInMemoryTokenCaches();
 
     builder.Services.AddAuthorization(options =>
@@ -26,17 +28,17 @@ if (hasAzureAdConfig)
     // Add services to the container.
     builder.Services.AddRazorPages()
         .AddMicrosoftIdentityUI();
+    
+    // Register services
+    builder.Services.AddScoped<IEmailService, EmailService>();
+    builder.Services.AddSingleton<IUnsubscribeLinkExtractor, Phi3UnsubscribeLinkExtractor>();
+    builder.Services.AddScoped<IUnsubscribeService, UnsubscribeService>();
 }
 else
 {
     // No authentication configured - show information page
     builder.Services.AddRazorPages();
 }
-
-// Register services
-builder.Services.AddScoped<IEmailService, EmailService>();
-builder.Services.AddSingleton<IUnsubscribeLinkExtractor, Phi3UnsubscribeLinkExtractor>();
-builder.Services.AddScoped<IUnsubscribeService, UnsubscribeService>();
 
 var app = builder.Build();
 

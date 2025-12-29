@@ -1,39 +1,40 @@
 using Microsoft.Graph;
-using Microsoft.Kiota.Abstractions.Authentication;
+using Microsoft.Identity.Web;
 using UnsubscribeEmail.Models;
 
 namespace UnsubscribeEmail.Services;
 
 public interface IEmailService
 {
-    Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string accessToken);
+    Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync();
 }
 
 public class EmailService : IEmailService
 {
     private readonly ILogger<EmailService> _logger;
+    private readonly ITokenAcquisition _tokenAcquisition;
+    private readonly GraphServiceClient _graphClient;
 
-    public EmailService(ILogger<EmailService> logger)
+    public EmailService(ILogger<EmailService> logger, ITokenAcquisition tokenAcquisition, GraphServiceClient graphClient)
     {
         _logger = logger;
+        _tokenAcquisition = tokenAcquisition;
+        _graphClient = graphClient;
     }
 
-    public async Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string accessToken)
+    public async Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync()
     {
         var emails = new List<EmailInfo>();
 
         try
         {
-            var authProvider = new BaseBearerTokenAuthenticationProvider(new TokenProvider(accessToken));
-            var graphClient = new GraphServiceClient(authProvider);
-
             // Get emails from current year
             var currentYear = DateTime.Now.Year;
             var startOfYear = new DateTime(currentYear, 1, 1);
             
             var filter = $"receivedDateTime ge {startOfYear:yyyy-MM-ddTHH:mm:ssZ}";
             
-            var messages = await graphClient.Me.Messages
+            var messages = await _graphClient.Me.Messages
                 .GetAsync(requestConfiguration =>
                 {
                     requestConfiguration.QueryParameters.Filter = filter;
@@ -65,21 +66,4 @@ public class EmailService : IEmailService
 
         return emails;
     }
-}
-
-internal class TokenProvider : IAccessTokenProvider
-{
-    private readonly string _accessToken;
-
-    public TokenProvider(string accessToken)
-    {
-        _accessToken = accessToken;
-    }
-
-    public Task<string> GetAuthorizationTokenAsync(Uri uri, Dictionary<string, object>? additionalAuthenticationContext = null, CancellationToken cancellationToken = default)
-    {
-        return Task.FromResult(_accessToken);
-    }
-
-    public AllowedHostsValidator AllowedHostsValidator => new AllowedHostsValidator();
 }

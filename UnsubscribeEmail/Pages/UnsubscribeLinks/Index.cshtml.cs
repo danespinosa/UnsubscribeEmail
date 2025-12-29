@@ -1,6 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc.RazorPages;
-using Microsoft.Identity.Web;
 using UnsubscribeEmail.Models;
 using UnsubscribeEmail.Services;
 
@@ -10,7 +9,6 @@ namespace UnsubscribeEmail.Pages.UnsubscribeLinks;
 public class IndexModel : PageModel
 {
     private readonly IUnsubscribeService _unsubscribeService;
-    private readonly ITokenAcquisition _tokenAcquisition;
     private readonly ILogger<IndexModel> _logger;
 
     public List<SenderUnsubscribeInfo> SenderInfos { get; set; } = new();
@@ -18,12 +16,10 @@ public class IndexModel : PageModel
     public string? ErrorMessage { get; set; }
 
     public IndexModel(
-        IUnsubscribeService unsubscribeService, 
-        ITokenAcquisition tokenAcquisition,
+        IUnsubscribeService unsubscribeService,
         ILogger<IndexModel> logger)
     {
         _unsubscribeService = unsubscribeService;
-        _tokenAcquisition = tokenAcquisition;
         _logger = logger;
     }
 
@@ -34,10 +30,7 @@ public class IndexModel : PageModel
             IsLoading = true;
             _logger.LogInformation("Fetching unsubscribe links...");
             
-            // Get access token for Microsoft Graph
-            var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(new[] { "User.Read", "Mail.Read" });
-            
-            SenderInfos = await _unsubscribeService.GetSenderUnsubscribeLinksAsync(accessToken);
+            SenderInfos = await _unsubscribeService.GetSenderUnsubscribeLinksAsync();
             IsLoading = false;
         }
         catch (Exception ex)
