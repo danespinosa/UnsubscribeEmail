@@ -15,15 +15,23 @@ if (hasAzureAdConfig)
 {
     // Add Microsoft Identity authentication
     builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
-        .AddMicrosoftIdentityWebApp(azureAdSection)
+        .AddMicrosoftIdentityWebApp(options =>
+        {
+            builder.Configuration.Bind("AzureAd", options);
+            options.Events = new OpenIdConnectEvents
+            {
+                OnRedirectToIdentityProviderForSignOut = context =>
+                {
+                    context.ProtocolMessage.PostLogoutRedirectUri = context.Request.Scheme + "://" + context.Request.Host;
+                    return Task.CompletedTask;
+                }
+            };
+        })
         .EnableTokenAcquisitionToCallDownstreamApi(new[] { "User.Read", "Mail.Read" })
         .AddMicrosoftGraph(builder.Configuration.GetSection("MicrosoftGraph"))
         .AddInMemoryTokenCaches();
 
-    builder.Services.AddAuthorization(options =>
-    {
-        options.FallbackPolicy = options.DefaultPolicy;
-    });
+    builder.Services.AddAuthorization();
 
     // Add services to the container.
     builder.Services.AddRazorPages()
@@ -63,5 +71,10 @@ if (hasAzureAdConfig)
 app.MapStaticAssets();
 app.MapRazorPages()
    .WithStaticAssets();
+
+if (hasAzureAdConfig)
+{
+    app.MapControllers();
+}
 
 app.Run();

@@ -1,4 +1,5 @@
 using Microsoft.Graph;
+using Microsoft.Identity.Abstractions;
 using Microsoft.Identity.Web;
 using UnsubscribeEmail.Models;
 
@@ -28,6 +29,9 @@ public class EmailService : IEmailService
 
         try
         {
+            var scopes = new[] { "Mail.Read" };
+            await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
+
             // Get emails from current year
             var currentYear = DateTime.Now.Year;
             var startOfYear = new DateTime(currentYear, 1, 1);
@@ -56,6 +60,10 @@ public class EmailService : IEmailService
                     });
                 }
             }
+        }
+        catch (MicrosoftIdentityWebChallengeUserException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
