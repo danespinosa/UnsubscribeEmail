@@ -1,10 +1,10 @@
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
-using Microsoft.Graph;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using UnsubscribeEmail.Services;
+using MSGraph = Microsoft.Graph;
 
-var builder = WebApplication.CreateBuilder(args);
+var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(args);
 
 // Check if Azure AD is configured
 var azureAdSection = builder.Configuration.GetSection("AzureAd");

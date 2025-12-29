@@ -34,19 +34,18 @@ public class EmailService : IEmailService
             
             var filter = $"receivedDateTime ge {startOfYear:yyyy-MM-ddTHH:mm:ssZ}";
             
-            var messages = await _graphClient.Me.Messages
-                .GetAsync(requestConfiguration =>
-                {
-                    requestConfiguration.QueryParameters.Filter = filter;
-                    requestConfiguration.QueryParameters.Select = new[] { "from", "subject", "body", "receivedDateTime" };
-                    requestConfiguration.QueryParameters.Top = 999;
-                });
+            var messagesRequest = _graphClient.Me.Messages.Request()
+                .Filter(filter)
+                .Select("from,subject,body,receivedDateTime")
+                .Top(999);
+            
+            var messages = await messagesRequest.GetAsync();
 
-            if (messages?.Value != null)
+            if (messages?.Count > 0)
             {
-                _logger.LogInformation($"Found {messages.Value.Count} emails from {currentYear}");
+                _logger.LogInformation($"Found {messages.Count} emails from {currentYear}");
 
-                foreach (var message in messages.Value)
+                foreach (var message in messages)
                 {
                     emails.Add(new EmailInfo
                     {
