@@ -1,4 +1,5 @@
 using Microsoft.ML.OnnxRuntimeGenAI;
+using System.Text.RegularExpressions;
 
 namespace UnsubscribeEmail.Services;
 
@@ -14,6 +15,28 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     private Model? _model;
     private Tokenizer? _tokenizer;
     private bool _modelInitialized = false;
+
+    private static readonly Regex AnchorTagRegex = new(
+        @"<a[^>]+href=[""']([^""']+)[""'][^>]*>(.*?)</a>",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
+
+    private static readonly Regex UnsubscribeKeywordsRegex = new(
+        @"unsubscribe|opt-out|optout|preferences",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
+    private static readonly Regex UrlRegex = new(
+        @"https?://[^\s<>""']+",
+        RegexOptions.Compiled);
+
+    private static readonly Regex[] UnsubscribeLinkPatterns = 
+    {
+        new Regex(@"https?://[^\s<>""']+unsubscribe[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"https?://[^\s<>""']+/preferences[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"https?://[^\s<>""']+/opt-out[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"https?://[^\s<>""']+/optout[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"<a[^>]+href=[""']([^""']+unsubscribe[^""']*)[""'][^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        new Regex(@"<a[^>]+href=[""']([^""']+/preferences[^""']*)[""'][^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+    };
 
     public Phi3UnsubscribeLinkExtractor(ILogger<Phi3UnsubscribeLinkExtractor> logger, IConfiguration configuration)
     {
@@ -103,18 +126,15 @@ Unsubscribe link:";
     private string? ExtractUnsubscribeLinkFallback(string emailBody)
     {
         // First, try to find anchor tags with "unsubscribe" in the text
-        var anchorPattern = @"<a[^>]+href=[""']([^""']+)[""'][^>]*>(.*?)</a>";
-        var anchorMatches = System.Text.RegularExpressions.Regex.Matches(emailBody, anchorPattern, 
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.Singleline);
+        var anchorMatches = AnchorTagRegex.Matches(emailBody);
         
-        foreach (System.Text.RegularExpressions.Match anchorMatch in anchorMatches)
+        foreach (Match anchorMatch in anchorMatches)
         {
             var anchorText = anchorMatch.Groups[2].Value;
             var href = anchorMatch.Groups[1].Value;
             
             // Check if anchor text or href contains unsubscribe-related keywords
-            if (System.Text.RegularExpressions.Regex.IsMatch(anchorText, @"unsubscribe|opt-out|optout|preferences", 
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+            if (UnsubscribeKeywordsRegex.IsMatch(anchorText))
             {
                 if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
                     href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -126,20 +146,9 @@ Unsubscribe link:";
         }
 
         // Fallback method using regex to find unsubscribe links directly in URLs
-        var patterns = new[]
+        foreach (var regex in UnsubscribeLinkPatterns)
         {
-            @"https?://[^\s<>""']+unsubscribe[^\s<>""']*",
-            @"https?://[^\s<>""']+/preferences[^\s<>""']*",
-            @"https?://[^\s<>""']+/opt-out[^\s<>""']*",
-            @"https?://[^\s<>""']+/optout[^\s<>""']*",
-            @"<a[^>]+href=[""']([^""']+unsubscribe[^""']*)[""'][^>]*>",
-            @"<a[^>]+href=[""']([^""']+/preferences[^""']*)[""'][^>]*>",
-        };
-
-        foreach (var pattern in patterns)
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(emailBody, pattern, 
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            var match = regex.Match(emailBody);
             
             if (match.Success)
             {
@@ -155,15 +164,13 @@ Unsubscribe link:";
     private string? ExtractUrlFromText(string text)
     {
         // Extract URL from the model output
-        var urlPattern = @"https?://[^\s<>""']+";
-        var match = System.Text.RegularExpressions.Regex.Match(text, urlPattern);
+        var match = UrlRegex.Match(text);
         
         if (match.Success)
         {
             return match.Value;
         }
 
-        // If no URL found, try fallback patterns
         return null;
     }
 }
