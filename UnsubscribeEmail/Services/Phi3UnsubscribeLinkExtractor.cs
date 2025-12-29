@@ -87,18 +87,28 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 
         try
         {
+            // Find the word "unsubscribe" or related keywords and extract context around it
+            var contextSnippet = ExtractUnsubscribeContext(emailBody);
+            
+            // If no unsubscribe context found, use fallback
+            if (string.IsNullOrEmpty(contextSnippet))
+            {
+                return ExtractUnsubscribeLinkFallback(emailBody);
+            }
+
             // Create prompt for the model
             var prompt = $@"Extract the unsubscribe link from the following email. Return only the URL or 'NONE' if no unsubscribe link is found.
 
 Email content:
-{emailBody.Substring(0, Math.Min(emailBody.Length, 2000))}
+{contextSnippet}
 
 Unsubscribe link:";
 
             var sequences = _tokenizer.Encode(prompt);
             
             using var generatorParams = new GeneratorParams(_model);
-            generatorParams.SetSearchOption("max_length", 100);
+            // max_length is total tokens (input + output), set high enough to accommodate both
+            generatorParams.SetSearchOption("max_length", 512);
             
             using var generator = new Generator(_model, generatorParams);
             generator.AppendTokenSequences(sequences);
@@ -121,6 +131,45 @@ Unsubscribe link:";
             _logger.LogError(ex, "Error using Phi3 model to extract unsubscribe link");
             return ExtractUnsubscribeLinkFallback(emailBody);
         }
+    }
+
+    private string? ExtractUnsubscribeContext(string emailBody)
+    {
+        // Search for multiple keywords related to unsubscribing
+        var keywords = new[] { "unsubscribe", "opt-out", "optout", "preferences" };
+        int bestIndex = -1;
+        string? foundKeyword = null;
+        
+        // Find the first occurrence of any keyword
+        foreach (var keyword in keywords)
+        {
+            var index = emailBody.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
+            if (index != -1 && (bestIndex == -1 || index < bestIndex))
+            {
+                bestIndex = index;
+                foundKeyword = keyword;
+            }
+        }
+        
+        if (bestIndex == -1 || foundKeyword == null)
+        {
+            // No keywords found, return null to trigger fallback
+            return null;
+        }
+
+        // Calculate positions
+        // The last character of the keyword is at: bestIndex + foundKeyword.Length - 1
+        var endOfKeyword = bestIndex + foundKeyword.Length - 1;
+        
+        // Start position: 100 characters before the last char of the keyword
+        var startPos = Math.Max(0, endOfKeyword - 99);
+        
+        // End position: include 100 characters after the keyword to capture the URL
+        var endPos = Math.Min(emailBody.Length, bestIndex + foundKeyword.Length + 100);
+        
+        // Extract the context snippet
+        var length = endPos - startPos;
+        return emailBody.Substring(startPos, length);
     }
 
     private string? ExtractUnsubscribeLinkFallback(string emailBody)
