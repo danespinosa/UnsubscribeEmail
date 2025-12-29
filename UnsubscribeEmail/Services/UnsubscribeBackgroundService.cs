@@ -56,11 +56,19 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
             var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
             var linkExtractor = scope.ServiceProvider.GetRequiredService<IUnsubscribeLinkExtractor>();
 
-            // Step 1: Fetch emails using the pre-acquired access token
-            status.CurrentStep = "Fetching emails...";
+            // Step 1: Fetch emails using the pre-acquired access token with progress updates
+            status.CurrentStep = "Connecting to Microsoft Graph API...";
             await SendProgressUpdate(userId, status);
 
-            var emails = await emailService.GetEmailsFromCurrentYearAsync(status.AccessToken);
+            var emails = await emailService.GetEmailsFromCurrentYearAsync(
+                status.AccessToken, 
+                async (emailCount, pageNumber) =>
+                {
+                    status.TotalEmails = emailCount;
+                    status.CurrentStep = $"Fetched {emailCount} emails from Graph API (page {pageNumber})...";
+                    await SendProgressUpdate(userId, status);
+                });
+            
             status.TotalEmails = emails.Count;
 
             status.CurrentStep = $"Retrieved {emails.Count} emails. Grouping by sender...";

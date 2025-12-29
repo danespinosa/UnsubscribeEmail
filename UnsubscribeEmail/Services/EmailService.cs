@@ -9,7 +9,7 @@ namespace UnsubscribeEmail.Services;
 
 public interface IEmailService
 {
-    Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string? accessToken = null);
+    Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string? accessToken = null, Action<int, int>? progressCallback = null);
 }
 
 public class EmailService : IEmailService
@@ -25,7 +25,7 @@ public class EmailService : IEmailService
         _httpClientFactory = httpClientFactory;
     }
 
-    public async Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string? accessToken = null)
+    public async Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string? accessToken = null, Action<int, int>? progressCallback = null)
     {
         var emails = new List<EmailInfo>();
 
@@ -50,10 +50,12 @@ public class EmailService : IEmailService
             var top = 999;
             
             var nextUrl = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select={select}&$top={top}";
+            var pageNumber = 0;
 
             while (!string.IsNullOrEmpty(nextUrl))
             {
-                _logger.LogInformation($"Fetching emails from: {nextUrl}");
+                pageNumber++;
+                _logger.LogInformation($"Fetching page {pageNumber} from Graph API");
                 
                 var response = await httpClient.GetAsync(nextUrl);
                 response.EnsureSuccessStatusCode();
@@ -65,7 +67,9 @@ public class EmailService : IEmailService
                 if (root.TryGetProperty("value", out var messagesArray))
                 {
                     var messageCount = messagesArray.GetArrayLength();
-                    _logger.LogInformation($"Processing {messageCount} emails (total so far: {emails.Count + messageCount})");
+                    var previousCount = emails.Count;
+                    
+                    _logger.LogInformation($"Processing {messageCount} emails from page {pageNumber}");
 
                     foreach (var message in messagesArray.EnumerateArray())
                     {
@@ -100,6 +104,9 @@ public class EmailService : IEmailService
                             Date = date
                         });
                     }
+                    
+                    // Notify progress after each page
+                    progressCallback?.Invoke(emails.Count, pageNumber);
                 }
 
                 // Check for next page
@@ -110,7 +117,7 @@ public class EmailService : IEmailService
                 }
             }
 
-            _logger.LogInformation($"Total emails fetched from {currentYear}: {emails.Count}");
+            _logger.LogInformation($"Total emails fetched from {currentYear}: {emails.Count} across {pageNumber} pages");
         }
         catch (MicrosoftIdentityWebChallengeUserException)
         {
