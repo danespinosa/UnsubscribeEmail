@@ -45,21 +45,35 @@ public class EmailService : IEmailService
             
             var messages = await messagesRequest.GetAsync();
 
-            if (messages?.Count > 0)
+            while (messages != null)
             {
-                _logger.LogInformation($"Found {messages.Count} emails from {currentYear}");
-
-                foreach (var message in messages)
+                if (messages.Count > 0)
                 {
-                    emails.Add(new EmailInfo
+                    _logger.LogInformation($"Processing {messages.Count} emails (total so far: {emails.Count + messages.Count})");
+
+                    foreach (var message in messages)
                     {
-                        From = message.From?.EmailAddress?.Address ?? string.Empty,
-                        Subject = message.Subject ?? string.Empty,
-                        Body = message.Body?.Content ?? string.Empty,
-                        Date = message.ReceivedDateTime?.DateTime ?? DateTime.MinValue
-                    });
+                        emails.Add(new EmailInfo
+                        {
+                            From = message.From?.EmailAddress?.Address ?? string.Empty,
+                            Subject = message.Subject ?? string.Empty,
+                            Body = message.Body?.Content ?? string.Empty,
+                            Date = message.ReceivedDateTime?.DateTime ?? DateTime.MinValue
+                        });
+                    }
+                }
+
+                if (messages.NextPageRequest != null)
+                {
+                    messages = await messages.NextPageRequest.GetAsync();
+                }
+                else
+                {
+                    break;
                 }
             }
+
+            _logger.LogInformation($"Total emails fetched from {currentYear}: {emails.Count}");
         }
         catch (MicrosoftIdentityWebChallengeUserException)
         {
