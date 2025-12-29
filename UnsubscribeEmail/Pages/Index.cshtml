@@ -1,0 +1,44 @@
+﻿@page
+@model IndexModel
+@{
+    ViewData["Title"] = "Home page";
+}
+
+<div class="text-center">
+    <h1 class="display-4">Email Unsubscribe Tool</h1>
+    <p class="lead">Connect to your Outlook email and find all unsubscribe links from senders.</p>
+    
+    <div class="mt-4">
+        <a href="/UnsubscribeLinks" class="btn btn-primary btn-lg">View Unsubscribe Links</a>
+    </div>
+    
+    <div class="mt-5">
+        <h3>How it works</h3>
+        <div class="row mt-3">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">1. Connect</h5>
+                        <p class="card-text">Configure your Outlook email credentials in appsettings.json</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">2. Process</h5>
+                        <p class="card-text">AI processes emails from current year to extract unsubscribe links using Phi3</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-body">
+                        <h5 class="card-title">3. Unsubscribe</h5>
+                        <p class="card-text">View all senders and their unsubscribe links in one place</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
