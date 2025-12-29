@@ -1,10 +1,11 @@
 # Email Unsubscribe Link Finder
 
-A .NET 10 web application that connects to Outlook email and extracts unsubscribe links from all emails received in the current year.
+A .NET 10 web application that connects to Outlook email via Microsoft Graph API and extracts unsubscribe links from all emails received in the current year.
 
 ## Features
 
-- **Outlook Integration**: Connects to any Outlook/Office365 email account via IMAP
+- **Microsoft Graph Integration**: Connects to Outlook/Office365 email accounts using modern OAuth authentication
+- **Secure Authentication**: Login/Logout functionality with Microsoft Identity
 - **Smart Processing**: Reads emails from the current year and extracts unsubscribe links
 - **Efficient Caching**: Once an unsubscribe link is found for a sender, it skips processing new emails from that sender
 - **AI-Powered Extraction**: Uses ONNX Runtime with Phi3 model for intelligent link extraction (with regex fallback)
@@ -13,27 +14,45 @@ A .NET 10 web application that connects to Outlook email and extracts unsubscrib
 ## Prerequisites
 
 - .NET 10 SDK
+- An Azure AD (Entra ID) application registration
 - An Outlook/Office365 email account
 - (Optional) Phi3 ONNX model for AI-powered link extraction
+
+## Azure AD Application Setup
+
+1. Go to the [Azure Portal](https://portal.azure.com)
+2. Navigate to **Azure Active Directory** > **App registrations**
+3. Click **New registration**
+4. Configure:
+   - **Name**: UnsubscribeEmail
+   - **Supported account types**: Accounts in any organizational directory and personal Microsoft accounts
+   - **Redirect URI**: Web - `https://localhost:5001/signin-oidc` (or your URL)
+5. After creation, note the **Application (client) ID** and **Directory (tenant) ID**
+6. Go to **Certificates & secrets** > **New client secret**
+7. Create a secret and copy its value immediately
+8. Go to **API permissions**:
+   - Add **Microsoft Graph** > **Delegated permissions**
+   - Add `User.Read` and `Mail.Read`
+   - Grant admin consent if required
 
 ## Configuration
 
 1. Open `appsettings.json` in the `UnsubscribeEmail` folder
-2. Update the `EmailConfiguration` section with your email credentials:
+2. Update the `AzureAd` section with your Azure AD app details:
 
 ```json
 {
-  "EmailConfiguration": {
-    "ImapServer": "outlook.office365.com",
-    "ImapPort": 993,
-    "UseSsl": true,
-    "Email": "your-email@outlook.com",
-    "Password": "your-password-or-app-password"
+  "AzureAd": {
+    "Instance": "https://login.microsoftonline.com/",
+    "TenantId": "your-tenant-id",
+    "ClientId": "your-client-id",
+    "ClientSecret": "your-client-secret",
+    "CallbackPath": "/signin-oidc"
   }
 }
 ```
 
-**Note**: For security reasons, consider using an app-specific password instead of your main account password.
+**Security Note**: Never commit your `appsettings.json` with real credentials to source control. Use environment variables or Azure Key Vault for production.
 
 ## Optional: Phi3 Model Setup
 
@@ -65,40 +84,46 @@ dotnet run
 
 3. Open your browser and navigate to `https://localhost:5001` (or the URL shown in the console)
 
-4. Click on "View Unsubscribe Links" to start processing your emails
+4. Click "Login" in the navigation bar to sign in with your Microsoft account
+
+5. After authentication, click "View Unsubscribe Links" to start processing your emails
 
 ## How It Works
 
-1. **Connection**: The app connects to your Outlook email via IMAP
-2. **Fetching**: It retrieves all emails from the current year
-3. **Grouping**: Emails are grouped by sender
-4. **Processing**: For each sender:
+1. **Authentication**: Sign in with your Microsoft account using OAuth
+2. **Authorization**: The app requests permission to read your emails via Microsoft Graph API
+3. **Fetching**: It retrieves all emails from the current year using Microsoft Graph
+4. **Grouping**: Emails are grouped by sender
+5. **Processing**: For each sender:
    - If we already have an unsubscribe link, skip to the next sender
    - If not, process emails from that sender until an unsubscribe link is found
-5. **Extraction**: Uses Phi3 AI model (or regex fallback) to extract unsubscribe links from email content
-6. **Display**: Shows all senders and their unsubscribe links in a sortable table
+6. **Extraction**: Uses Phi3 AI model (or regex fallback) to extract unsubscribe links from email content
+7. **Display**: Shows all senders and their unsubscribe links in a sortable table
 
 ## Security Considerations
 
-- **Never commit your `appsettings.json` with real credentials** - The `.gitignore` is configured to exclude `*.env` files
-- Consider using environment variables or Azure Key Vault for production deployments
-- Use app-specific passwords when available
-- The application only reads emails; it does not modify or delete anything
+- **Never commit your `appsettings.json` with real credentials** - Store sensitive data in environment variables or Azure Key Vault
+- **OAuth2 Authentication**: The app uses modern OAuth authentication instead of password-based authentication
+- **Minimal Permissions**: Only requests `User.Read` and `Mail.Read` permissions
+- **Read-Only Access**: The application only reads emails; it does not modify or delete anything
+- **Token Management**: Uses Microsoft Identity Web for secure token management
 
 ## Technologies Used
 
 - **.NET 10**: Latest .NET framework
 - **ASP.NET Core Razor Pages**: For the web UI
-- **MailKit**: For IMAP email connectivity
+- **Microsoft Graph API**: For accessing Outlook emails
+- **Microsoft Identity Web**: For OAuth authentication
 - **ONNX Runtime GenAI**: For running the Phi3 AI model
 - **Bootstrap 5**: For responsive UI design
 
 ## Troubleshooting
 
 ### Authentication Errors
-- Ensure you're using the correct email and password
-- For Microsoft accounts with 2FA, generate an app-specific password
-- Check that IMAP is enabled in your Outlook settings
+- Ensure your Azure AD app is properly configured
+- Verify TenantId, ClientId, and ClientSecret are correct
+- Check that redirect URIs match your application URLs
+- Ensure API permissions (User.Read, Mail.Read) are granted
 
 ### Model Loading Errors
 - Verify the Phi3 model path is correct
@@ -107,7 +132,7 @@ dotnet run
 
 ### No Emails Found
 - Verify you have emails from the current year
-- Check the email configuration settings
+- Check that you've granted Mail.Read permission
 - Review the application logs for detailed error messages
 
 ## License

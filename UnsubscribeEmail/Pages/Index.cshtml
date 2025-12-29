@@ -8,9 +8,33 @@
     <h1 class="display-4">Email Unsubscribe Tool</h1>
     <p class="lead">Connect to your Outlook email and find all unsubscribe links from senders.</p>
     
-    <div class="mt-4">
-        <a href="/UnsubscribeLinks" class="btn btn-primary btn-lg">View Unsubscribe Links</a>
-    </div>
+    @if (!Model.IsAzureAdConfigured)
+    {
+        <div class="alert alert-warning mt-4" role="alert">
+            <h4 class="alert-heading">Configuration Required</h4>
+            <p>Please configure your Azure AD application settings in <code>appsettings.json</code>:</p>
+            <ul class="text-start">
+                <li><strong>TenantId</strong>: Your Azure AD tenant ID</li>
+                <li><strong>ClientId</strong>: Your application (client) ID</li>
+                <li><strong>ClientSecret</strong>: Your client secret</li>
+            </ul>
+            <hr>
+            <p class="mb-0">Once configured, restart the application and click the Login button to get started.</p>
+        </div>
+    }
+    else
+    {
+        <div class="mt-4">
+            @if (User.Identity?.IsAuthenticated == true)
+            {
+                <a href="/UnsubscribeLinks" class="btn btn-primary btn-lg">View Unsubscribe Links</a>
+            }
+            else
+            {
+                <a asp-area="MicrosoftIdentity" asp-controller="Account" asp-action="SignIn" class="btn btn-primary btn-lg">Login to Get Started</a>
+            }
+        </div>
+    }
     
     <div class="mt-5">
         <h3>How it works</h3>
@@ -18,8 +42,8 @@
             <div class="col-md-4">
                 <div class="card">
                     <div class="card-body">
-                        <h5 class="card-title">1. Connect</h5>
-                        <p class="card-text">Configure your Outlook email credentials in appsettings.json</p>
+                        <h5 class="card-title">1. Login</h5>
+                        <p class="card-text">Sign in with your Microsoft account to access your Outlook emails</p>
                     </div>
                 </div>
             </div>

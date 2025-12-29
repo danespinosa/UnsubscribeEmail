@@ -1,20 +1,42 @@
-using UnsubscribeEmail.Models;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
+using Microsoft.Identity.Web;
+using Microsoft.Identity.Web.UI;
 using UnsubscribeEmail.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-builder.Services.AddRazorPages();
+// Check if Azure AD is configured
+var azureAdSection = builder.Configuration.GetSection("AzureAd");
+var clientId = azureAdSection["ClientId"];
+var hasAzureAdConfig = !string.IsNullOrEmpty(clientId);
 
-// Configure email settings
-var emailConfig = new EmailConfiguration();
-builder.Configuration.GetSection("EmailConfiguration").Bind(emailConfig);
-builder.Services.AddSingleton(emailConfig);
+if (hasAzureAdConfig)
+{
+    // Add Microsoft Identity authentication
+    builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
+        .AddMicrosoftIdentityWebApp(azureAdSection)
+        .EnableTokenAcquisitionToCallDownstreamApi(new[] { "User.Read", "Mail.Read" })
+        .AddInMemoryTokenCaches();
+
+    builder.Services.AddAuthorization(options =>
+    {
+        options.FallbackPolicy = options.DefaultPolicy;
+    });
+
+    // Add services to the container.
+    builder.Services.AddRazorPages()
+        .AddMicrosoftIdentityUI();
+}
+else
+{
+    // No authentication configured - show information page
+    builder.Services.AddRazorPages();
+}
 
 // Register services
-builder.Services.AddSingleton<IEmailService, EmailService>();
+builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddSingleton<IUnsubscribeLinkExtractor, Phi3UnsubscribeLinkExtractor>();
-builder.Services.AddSingleton<IUnsubscribeService, UnsubscribeService>();
+builder.Services.AddScoped<IUnsubscribeService, UnsubscribeService>();
 
 var app = builder.Build();
 
@@ -30,7 +52,11 @@ app.UseHttpsRedirection();
 
 app.UseRouting();
 
-app.UseAuthorization();
+if (hasAzureAdConfig)
+{
+    app.UseAuthentication();
+    app.UseAuthorization();
+}
 
 app.MapStaticAssets();
 app.MapRazorPages()

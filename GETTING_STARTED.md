@@ -6,37 +6,49 @@ This guide will help you set up and run the UnsubscribeEmail web application.
 
 - .NET 10 SDK installed on your system
 - An Outlook/Office365 email account
-- IMAP access enabled on your email account
+- An Azure AD (Entra ID) application registration
 
 ## Quick Start
 
-### 1. Configure Email Credentials
+### 1. Create Azure AD Application
 
-Edit the file `UnsubscribeEmail/appsettings.json` and update the email configuration:
+1. Go to the [Azure Portal](https://portal.azure.com)
+2. Navigate to **Azure Active Directory** > **App registrations**
+3. Click **New registration**
+4. Configure:
+   - **Name**: UnsubscribeEmail
+   - **Supported account types**: Accounts in any organizational directory and personal Microsoft accounts
+   - **Redirect URI**: Web - `https://localhost:5001/signin-oidc`
+5. After creation, note:
+   - **Application (client) ID**
+   - **Directory (tenant) ID**
+6. Go to **Certificates & secrets** > **New client secret**
+   - Create a secret and **copy its value immediately** (you won't see it again)
+7. Go to **API permissions**:
+   - Click **Add a permission** > **Microsoft Graph** > **Delegated permissions**
+   - Add `User.Read` and `Mail.Read`
+   - Click **Grant admin consent** (if required for your organization)
+
+### 2. Configure Application Settings
+
+Edit the file `UnsubscribeEmail/appsettings.json` and update the Azure AD configuration:
 
 ```json
 {
-  "EmailConfiguration": {
-    "ImapServer": "outlook.office365.com",
-    "ImapPort": 993,
-    "UseSsl": true,
-    "Email": "your-email@outlook.com",
-    "Password": "your-app-specific-password"
+  "AzureAd": {
+    "Instance": "https://login.microsoftonline.com/",
+    "TenantId": "your-tenant-id-from-step-1",
+    "ClientId": "your-client-id-from-step-1",
+    "ClientSecret": "your-client-secret-from-step-1",
+    "CallbackPath": "/signin-oidc"
   }
 }
 ```
 
 **Security Note**: 
-- Use an app-specific password instead of your main password
 - Never commit this file with real credentials to source control
 - For production, use environment variables or Azure Key Vault
-
-### 2. Enable IMAP on Outlook
-
-1. Go to Outlook settings
-2. Navigate to Mail > Sync email
-3. Enable IMAP
-4. Generate an app-specific password if you have 2FA enabled
+- The client secret is sensitive - treat it like a password
 
 ### 3. Run the Application
 
@@ -50,15 +62,24 @@ The application will start and display the URL (typically `https://localhost:500
 ### 4. Use the Application
 
 1. Open your web browser and navigate to the URL shown
-2. Click "View Unsubscribe Links"
-3. Wait while the application processes your emails (this may take a few minutes)
-4. View the list of senders and their unsubscribe links
-5. Click the "Unsubscribe" button next to any sender to visit their unsubscribe page
+2. Click the **Login** button in the navigation bar
+3. Sign in with your Microsoft account
+4. Grant the requested permissions (User.Read, Mail.Read)
+5. After successful login, click **View Unsubscribe Links**
+6. Wait while the application processes your emails (this may take a few minutes)
+7. View the list of senders and their unsubscribe links
+8. Click the "Unsubscribe" button next to any sender to visit their unsubscribe page
+9. Use the **Logout** button when finished
 
 ## Features
 
+### Secure Authentication
+- OAuth 2.0 authentication via Microsoft Identity
+- No password storage - uses secure token-based authentication
+- Login/Logout functionality built-in
+
 ### Smart Processing
-- Only reads emails from the current year
+- Only reads emails from the current year via Microsoft Graph API
 - Groups emails by sender
 - Stops processing emails from a sender once an unsubscribe link is found
 - Caches results to avoid re-processing
@@ -81,10 +102,12 @@ The regex-based fallback looks for common unsubscribe link patterns:
 
 ## Troubleshooting
 
-### "Resource temporarily unavailable" Error
-- Verify your email and password are correct
-- Check that IMAP is enabled in your Outlook settings
-- Ensure you're using an app-specific password if you have 2FA
+### Authentication/Login Errors
+- Verify your Azure AD app configuration is correct
+- Ensure TenantId, ClientId, and ClientSecret match your Azure app
+- Check that redirect URI in Azure matches your application URL
+- Verify API permissions (User.Read, Mail.Read) are granted
+- Try clearing browser cookies and cache
 
 ### "No emails found"
 - Make sure you have emails from the current year
