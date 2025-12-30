@@ -73,6 +73,7 @@
                             <th scope="col">Sender Email</th>
                             <th scope="col">Recipient Email</th>
                             <th scope="col">Email Count</th>
+                            <th scope="col">Unread Count</th>
                             <th scope="col">Actions</th>
                         </tr>
                     </thead>
@@ -132,6 +133,7 @@
                 <td>${escapeHtml(sender.senderEmail)}</td>
                 <td><span class="badge bg-secondary" title="${escapeHtml(sender.recipientEmail || 'Unknown')}">${truncateText(sender.recipientEmail || 'Unknown', 24)}</span></td>
                 <td><span class="badge bg-info">${sender.emailCount}</span></td>
+                <td><span class="badge bg-warning text-dark">${sender.unreadCount || 0}</span></td>
                 <td>
                     <button type="button" class="btn btn-sm btn-success me-2" onclick="readEmails('${escapeHtml(sender.senderEmail)}')">
                         <i class="bi bi-envelope-open"></i> Read Emails

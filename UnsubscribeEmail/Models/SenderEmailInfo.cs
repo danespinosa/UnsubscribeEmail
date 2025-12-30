@@ -6,6 +6,7 @@ namespace UnsubscribeEmail.Models
         public string SenderEmail { get; set; } = string.Empty;
         public string RecipientEmail { get; set; } = string.Empty;
         public int EmailCount { get; set; }
+        public int UnreadCount { get; set; }
         public List<string> EmailIds { get; set; } = new();
         public DateTime? LastEmailDate { get; set; }
     }

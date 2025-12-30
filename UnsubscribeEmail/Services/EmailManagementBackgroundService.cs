@@ -110,7 +110,7 @@ namespace UnsubscribeEmail.Services
             var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
             var filter = $"receivedDateTime ge {startDate} and isDraft eq false";
             // Query all messages, not just inbox
-            var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,from,toRecipients,receivedDateTime,parentFolderId&$top=999&$orderby=receivedDateTime desc";
+            var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,from,toRecipients,receivedDateTime,isRead,parentFolderId&$top=999&$orderby=receivedDateTime desc";
 
             var pageCount = 0;
             while (!string.IsNullOrEmpty(url))
@@ -144,7 +144,8 @@ namespace UnsubscribeEmail.Services
                             Subject = message.TryGetProperty("subject", out var subject) ? subject.GetString() ?? "" : "",
                             ReceivedDateTime = message.TryGetProperty("receivedDateTime", out var receivedDateTime) 
                                 ? DateTime.Parse(receivedDateTime.GetString() ?? "") 
-                                : DateTime.MinValue
+                                : DateTime.MinValue,
+                            IsRead = message.TryGetProperty("isRead", out var isRead) && isRead.GetBoolean()
                         };
 
                         if (message.TryGetProperty("from", out var from) &&
@@ -191,6 +192,7 @@ namespace UnsubscribeEmail.Services
                     SenderName = g.First().SenderName,
                     RecipientEmail = g.First().RecipientEmail,
                     EmailCount = g.Count(),
+                    UnreadCount = g.Count(e => !e.IsRead),
                     EmailIds = g.Select(e => e.Id).ToList(),
                     LastEmailDate = g.Max(e => e.ReceivedDateTime)
                 })
@@ -468,6 +470,7 @@ namespace UnsubscribeEmail.Services
             public string SenderEmail { get; set; } = string.Empty;
             public string RecipientEmail { get; set; } = string.Empty;
             public DateTime ReceivedDateTime { get; set; }
+            public bool IsRead { get; set; }
         }
     }
 }
