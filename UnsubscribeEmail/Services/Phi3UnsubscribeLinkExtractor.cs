@@ -36,6 +36,10 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         new Regex(@"https?://[^\s<>""']+/optout[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new Regex(@"<a[^>]+href=[""']([^""']+unsubscribe[^""']*)[""'][^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new Regex(@"<a[^>]+href=[""']([^""']+/preferences[^""']*)[""'][^>]*>", RegexOptions.IgnoreCase | RegexOptions.Compiled),
+        // Match pattern: "To unsubscribe ... please <a href="...">click here</a>"
+        new Regex(@"(?:to\s+)?unsubscribe[^<]{0,150}?<a[^>]+href=[""']([^""']+)[""'][^>]*>(?:click\s+here|here|unsubscribe)", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline),
+        // Match pattern: "unsubscribe from [something], please <a>click here</a>"
+        new Regex(@"unsubscribe\s+from[^<]{0,150}?please\s*<a[^>]+href=[""']([^""']+)[""'][^>]*>(?:click[^<]*here|here)", RegexOptions.IgnoreCase | RegexOptions.Compiled | RegexOptions.Singleline),
     };
 
     public Phi3UnsubscribeLinkExtractor(ILogger<Phi3UnsubscribeLinkExtractor> logger, IConfiguration configuration)
@@ -123,19 +127,31 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 
             _logger.LogInformation("Processing with Phi3 model...");
 
-            // Create prompt for the model
-            var prompt = $@"Extract the unsubscribe link from the following email. Return only the URL or 'NONE' if no unsubscribe link is found.
+            // Create prompt for the model with better instructions
+            var prompt = $@"<|system|>
+You are an email parser that extracts unsubscribe links from HTML emails. Extract complete URLs only.
+<|end|>
+<|user|>
+Find the unsubscribe link in this email HTML. The link may be:
+- In an <a href=""...""> tag after text like 'To unsubscribe' or 'click here'
+- A URL containing 'unsubscribe', 'opt-out', or 'optout'
+- Near phrases like 'To unsubscribe from email offers, please click here'
 
-Email content:
+Email HTML:
 {contextSnippet}
 
-Unsubscribe link:";
+Return ONLY the complete unsubscribe URL starting with http:// or https://, nothing else. If no link found, return NONE.
+<|end|>
+<|assistant|>";
 
             var sequences = _tokenizer.Encode(prompt);
             
             using var generatorParams = new GeneratorParams(_model);
-            // max_length is total tokens (input + output), set high enough to accommodate both
-            generatorParams.SetSearchOption("max_length", 512);
+            // max_length is total tokens (input + output), increase to handle larger context
+            generatorParams.SetSearchOption("max_length", 2048);
+            generatorParams.SetSearchOption("min_length", 10); // Ensure some output
+            generatorParams.SetSearchOption("do_sample", false); // Deterministic output
+            generatorParams.SetSearchOption("top_k", 1); // Greedy decoding for consistency
             
             using var generator = new Generator(_model, generatorParams);
             generator.AppendTokenSequences(sequences);
@@ -205,19 +221,21 @@ Unsubscribe link:";
             return null;
         }
 
-        // Calculate positions
-        // The last character of the keyword is at: bestIndex + foundKeyword.Length - 1
-        var endOfKeyword = bestIndex + foundKeyword.Length - 1;
+        // Calculate positions - we need more context AFTER the keyword
+        // because often the link comes after phrases like "To unsubscribe, please click here"
+        // Take 200 chars before and 1000 chars after the start of the keyword
+        var startPos = Math.Max(0, bestIndex - 200);
         
-        // Start position: 100 characters before the last char of the keyword
-        var startPos = Math.Max(0, endOfKeyword - 99);
-        
-        // End position: include 100 characters after the keyword to capture the URL
-        var endPos = Math.Min(emailBody.Length, bestIndex + foundKeyword.Length + 100);
+        // End position: include more content after to capture links that come after the keyword
+        var endPos = Math.Min(emailBody.Length, bestIndex + foundKeyword.Length + 1000);
         
         // Extract the context snippet
         var length = endPos - startPos;
-        return emailBody.Substring(startPos, length);
+        var context = emailBody.Substring(startPos, length);
+        
+        _logger.LogInformation($"Extracted context snippet (length: {context.Length}) starting at position {startPos}");
+        
+        return context;
     }
 
     private string? ExtractUnsubscribeLinkFallback(string emailBody)
@@ -355,12 +373,41 @@ Unsubscribe link:";
 
     private string? ExtractUrlFromText(string text)
     {
-        // Extract URL from the model output
-        var match = UrlRegex.Match(text);
-        
-        if (match.Success)
+        // Remove the original prompt from the output if present
+        var assistantIndex = text.IndexOf("<|assistant|>", StringComparison.OrdinalIgnoreCase);
+        if (assistantIndex != -1)
         {
-            return match.Value;
+            text = text.Substring(assistantIndex + "<|assistant|>".Length);
+        }
+        
+        // Clean up the response
+        text = text.Trim();
+        
+        // Check if model explicitly said no link found
+        if (text.Contains("NONE", StringComparison.OrdinalIgnoreCase) || 
+            text.Contains("no link", StringComparison.OrdinalIgnoreCase) ||
+            text.Contains("not found", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+        
+        // Extract URL from the model output - try to find the cleanest URL
+        var matches = UrlRegex.Matches(text);
+        
+        if (matches.Count > 0)
+        {
+            // Return the first valid-looking URL
+            foreach (Match match in matches)
+            {
+                var url = match.Value;
+                // Remove trailing punctuation that might not be part of the URL
+                url = url.TrimEnd('.', ',', ';', ')', ']', '}');
+                
+                if (IsValidUrl(url))
+                {
+                    return url;
+                }
+            }
         }
 
         return null;
