@@ -222,7 +222,7 @@ Unsubscribe link:";
 
     private string? ExtractUnsubscribeLinkFallback(string emailBody)
     {
-        // First, try to find anchor tags with "unsubscribe" in the text
+        // Step 1: Look for anchor tags with unsubscribe keywords in the text or href
         var anchorMatches = AnchorTagRegex.Matches(emailBody);
         
         foreach (Match anchorMatch in anchorMatches)
@@ -230,19 +230,65 @@ Unsubscribe link:";
             var anchorText = anchorMatch.Groups[2].Value;
             var href = anchorMatch.Groups[1].Value;
             
-            // Check if anchor text or href contains unsubscribe-related keywords
+            // Check if anchor text contains unsubscribe-related keywords
             if (UnsubscribeKeywordsRegex.IsMatch(anchorText))
             {
                 if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
                     href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogInformation($"Found unsubscribe link in anchor tag: {href}");
+                    _logger.LogInformation($"Found unsubscribe link in anchor tag text: {href}");
+                    return href;
+                }
+            }
+            
+            // Check if href contains unsubscribe-related keywords
+            if (UnsubscribeKeywordsRegex.IsMatch(href))
+            {
+                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                    href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation($"Found unsubscribe link in href: {href}");
                     return href;
                 }
             }
         }
+        
+        // Step 2: Look for links near unsubscribe keywords (within ~500 characters)
+        // This handles cases like: "If you would like to unsubscribe... <a>click here</a>"
+        var keywordMatches = UnsubscribeKeywordsRegex.Matches(emailBody);
+        
+        foreach (Match keywordMatch in keywordMatches)
+        {
+            var keywordPosition = keywordMatch.Index;
+            
+            // Search for anchor tags within 500 characters after the keyword
+            var searchStart = keywordPosition;
+            var searchEnd = Math.Min(emailBody.Length, keywordPosition + 500);
+            var searchText = emailBody.Substring(searchStart, searchEnd - searchStart);
+            
+            var nearbyAnchors = AnchorTagRegex.Matches(searchText);
+            
+            foreach (Match nearbyAnchor in nearbyAnchors)
+            {
+                var href = nearbyAnchor.Groups[1].Value;
+                var anchorText = nearbyAnchor.Groups[2].Value.Trim().ToLower();
+                
+                // Look for common action phrases like "click here", "here", etc.
+                var actionPhrases = new[] { "click here", "here", "click", "tap here", "this link", "follow this link" };
+                
+                if (actionPhrases.Any(phrase => anchorText.Contains(phrase)))
+                {
+                    if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                        href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+                    {
+                        _logger.LogInformation($"Found unsubscribe link near keyword (anchor text: '{anchorText}'): {href}");
+                        return href;
+                    }
+                }
+            }
+        }
 
-        // Fallback method using regex to find unsubscribe links directly in URLs
+        // Step 3: Fallback method using regex to find unsubscribe links directly in URLs
         foreach (var regex in UnsubscribeLinkPatterns)
         {
             var match = regex.Match(emailBody);
