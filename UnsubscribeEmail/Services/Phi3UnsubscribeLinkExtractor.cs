@@ -132,18 +132,24 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             {
                 // Create prompt for the model with better instructions
                 var prompt = $@"<|system|>
-You are an email parser that extracts unsubscribe links from HTML emails. Extract complete URLs only.
+You are an email parser that extracts unsubscribe links from HTML emails. Extract complete URLs from href attributes.
 <|end|>
 <|user|>
 Find the unsubscribe link in this email HTML. The link may be:
-- In an <a href=""...""> tag after text like 'To unsubscribe' or 'click here'
-- A URL containing 'unsubscribe', 'opt-out', or 'optout'
-- Near phrases like 'To unsubscribe from email offers, please click here'
+- In an <a href=""""> tag after text like 'To unsubscribe', 'no longer wish to receive', or 'opt-out'
+- In an <a> tag where the link text says 'click here', 'here', 'unsubscribe', or similar
+- A complete URL in the href attribute starting with http:// or https://
+- The href may contain query parameters and be very long
+
+Example patterns:
+- To unsubscribe please <a href=""https://example.com/unsub?id=123"">click here</a>
+- Click <a href=""https://example.com/optout"">here</a> to unsubscribe
+- <a href=""https://unsubscribe.example.com"">Unsubscribe</a>
 
 Email HTML:
 {contextSnippet}
 
-Return ONLY the complete unsubscribe URL starting with http:// or https://, nothing else. If no link found, return NONE.
+Extract ONLY the complete URL from the href attribute. Return the full URL including all parameters. If no unsubscribe link found, return NONE.
 <|end|>
 <|assistant|>";
 
@@ -204,7 +210,7 @@ Return ONLY the complete unsubscribe URL starting with http:// or https://, noth
     private List<string> ExtractMultipleUnsubscribeContexts(string emailBody)
     {
         var contexts = new List<string>();
-        var keywords = new[] { "unsubscribe", "opt-out", "opt out", "optout", "manage preferences", "email preferences" };
+        var keywords = new[] { "unsubscribe", "opt-out", "opt out", "optout", "manage preferences", "email preferences", "no longer wish to receive" };
         
         // Find all occurrences of keywords and extract contexts around them
         var keywordPositions = new List<(int position, string keyword)>();
@@ -227,25 +233,75 @@ Return ONLY the complete unsubscribe URL starting with http:// or https://, noth
         // Sort by position
         keywordPositions.Sort((a, b) => a.position.CompareTo(b.position));
         
-        // Take the first 2 occurrences to avoid processing too much
-        var positionsToProcess = keywordPositions.Take(2).ToList();
+        // Take the first 3 occurrences to avoid processing too much
+        var positionsToProcess = keywordPositions.Take(3).ToList();
         
         foreach (var (position, keyword) in positionsToProcess)
         {
-            // Extract context: 1000 chars before AND 1000 chars after the keyword
-            // This ensures we capture links that come both before and after the keyword
-            var startPos = Math.Max(0, position - 1000);
-            var endPos = Math.Min(emailBody.Length, position + keyword.Length + 1000);
+            // Try to find the nearest <a> tag (either before or after the keyword)
+            var anchorContext = FindNearestAnchorTag(emailBody, position);
             
-            var length = endPos - startPos;
-            var context = emailBody.Substring(startPos, length);
-            
-            _logger.LogInformation($"Extracted context snippet #{contexts.Count + 1} (length: {context.Length}) centered around '{keyword}' at position {position}");
-            
-            contexts.Add(context);
+            if (!string.IsNullOrEmpty(anchorContext))
+            {
+                _logger.LogInformation($"Extracted anchor tag context around '{keyword}' at position {position}");
+                contexts.Add(anchorContext);
+            }
+            else
+            {
+                // Fallback to extracting 1000 chars before and after the keyword
+                var startPos = Math.Max(0, position - 1000);
+                var endPos = Math.Min(emailBody.Length, position + keyword.Length + 1000);
+                
+                var length = endPos - startPos;
+                var context = emailBody.Substring(startPos, length);
+                
+                _logger.LogInformation($"Extracted context snippet #{contexts.Count + 1} (length: {context.Length}) centered around '{keyword}' at position {position}");
+                
+                contexts.Add(context);
+            }
         }
         
         return contexts;
+    }
+
+    private string FindNearestAnchorTag(string html, int keywordPosition)
+    {
+        const int searchRadius = 500; // Search within 500 chars before and after keyword
+        
+        var searchStart = Math.Max(0, keywordPosition - searchRadius);
+        var searchEnd = Math.Min(html.Length, keywordPosition + searchRadius);
+        
+        // Find <a> tags before and after the keyword position
+        var beforeSection = html.Substring(searchStart, keywordPosition - searchStart);
+        var afterSection = html.Substring(keywordPosition, searchEnd - keywordPosition);
+        
+        // Look for <a> tag that contains or is near the keyword
+        // First, try to find <a> tag after the keyword (common pattern: "To unsubscribe... <a href...>click here</a>")
+        var aTagAfterMatch = Regex.Match(afterSection, @"<a\s+[^>]*href\s*=\s*[""']([^""']+)[""'][^>]*>.*?</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (aTagAfterMatch.Success)
+        {
+            // Extract more context including the keyword
+            var fullStart = Math.Max(0, keywordPosition - 200);
+            var fullEnd = Math.Min(html.Length, keywordPosition + aTagAfterMatch.Index + aTagAfterMatch.Length + 100);
+            return html.Substring(fullStart, fullEnd - fullStart);
+        }
+        
+        // Second, try to find <a> tag before the keyword (pattern: "<a>unsubscribe</a>")
+        var aTagBeforeMatches = Regex.Matches(beforeSection, @"<a\s+[^>]*href\s*=\s*[""']([^""']+)[""'][^>]*>.*?</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
+        if (aTagBeforeMatches.Count > 0)
+        {
+            // Get the last <a> tag before the keyword
+            var lastMatch = aTagBeforeMatches[aTagBeforeMatches.Count - 1];
+            var tagStart = searchStart + lastMatch.Index;
+            var tagEnd = tagStart + lastMatch.Length;
+            
+            // Extract context including some padding
+            var fullStart = Math.Max(0, tagStart - 100);
+            var fullEnd = Math.Min(html.Length, tagEnd + 200);
+            return html.Substring(fullStart, fullEnd - fullStart);
+        }
+        
+        return null;
     }
 
     private string? ExtractUnsubscribeContext(string emailBody)
