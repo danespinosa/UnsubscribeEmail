@@ -116,7 +116,7 @@
             row.innerHTML = `
                 <th scope="row">${senderCount}</th>
                 <td>${escapeHtml(sender.senderEmail)}</td>
-                <td><span class="badge bg-secondary" title="${escapeHtml(sender.recipientEmail || 'Unknown')}">${truncateText(sender.recipientEmail || 'Unknown', 30)}</span></td>
+                <td><span class="badge bg-secondary" title="${escapeHtml(sender.recipientEmail || 'Unknown')}">${truncateText(sender.recipientEmail || 'Unknown', 24)}</span></td>
                 <td><span class="badge bg-info">${sender.emailCount}</span></td>
                 <td>
                     <button class="btn btn-sm btn-success me-2" onclick="readEmails('${escapeHtml(sender.senderEmail)}')">

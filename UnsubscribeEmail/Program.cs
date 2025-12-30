@@ -28,7 +28,8 @@ if (hasAzureAdConfig)
                 }
             };
         })
-        .EnableTokenAcquisitionToCallDownstreamApi(new[] { "User.Read", "Mail.Read" })
+        .EnableTokenAcquisitionToCallDownstreamApi(
+            builder.Configuration.GetSection("MicrosoftGraph:Scopes").Value?.Split(' ') ?? new[] { "User.Read", "Mail.Read"})
         .AddMicrosoftGraph(builder.Configuration.GetSection("MicrosoftGraph"))
         .AddInMemoryTokenCaches();
 

@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.RazorPages;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Identity.Web;
-using System.Security.Claims;
 using UnsubscribeEmail.Hubs;
 using UnsubscribeEmail.Services;
 
@@ -39,7 +38,7 @@ public class IndexModel : PageModel
         try
         {
             // Acquire token for the authenticated user to ensure they're authenticated
-            var scopes = new[] { "Mail.Read" };
+            var scopes = new[] { "Mail.Read", "Mail.ReadWrite" };
             var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
             
             // Validate daysBack parameter (1-365 days)
