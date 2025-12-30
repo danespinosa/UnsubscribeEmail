@@ -7,7 +7,7 @@ namespace UnsubscribeEmail.Services
     {
         Task ProcessEmailsAsync(int daysBack, string connectionId, string accessToken);
         Task<EmailActionResult> MarkEmailsAsReadAsync(string senderEmail, int daysBack, string accessToken);
-
+        Task<EmailActionResult> DeleteEmailsAsync(string senderEmail, int daysBack, string accessToken);
         Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, string connectionId, string accessToken);
     }
 

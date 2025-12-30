@@ -56,22 +56,37 @@ namespace UnsubscribeEmail.Hubs
                 var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
 
                 var sinceDate = DateTime.UtcNow.AddDays(-daysBack);
-                
-                // Fetch emails from sender
-                var emails = await _emailManagementService.FetchEmailsAsync(daysBack, Context.ConnectionId, accessToken);
-                var senderEmails = emails.Where(e => e.SenderEmail.Equals(senderEmail, StringComparison.OrdinalIgnoreCase)).ToList();
-
-                _logger.LogInformation($"Found {senderEmails.Count} emails from {senderEmail} to mark as read");
 
                 // Mark emails as read
-                await _emailManagementService.MarkEmailsAsReadAsync(senderEmail, daysBack, accessToken);
+                var result = await _emailManagementService.MarkEmailsAsReadAsync(senderEmail, daysBack, accessToken);
                 
-                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully marked {senderEmails.Count} emails as read from {senderEmail}", type = "success" });
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully marked {result.Count} emails as read from {senderEmail}", type = "success" });
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error marking emails as read from {senderEmail}");
                 await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Error marking emails as read: {ex.Message}", type = "error" });
+            }
+        }
+
+        public async Task DeleteEmails(string senderEmail, int daysBack)
+        {
+            try
+            {
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Deleting emails from {senderEmail}...", type = "info" });
+
+                var scopes = new[] { "https://graph.microsoft.com/Mail.ReadWrite" };
+                var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
+
+                // Delete emails
+                var result = await _emailManagementService.DeleteEmailsAsync(senderEmail, daysBack, accessToken);
+                
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = result.Message, type = result.Success ? "success" : "error" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error deleting emails from {senderEmail}");
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Error deleting emails: {ex.Message}", type = "error" });
             }
         }
     }

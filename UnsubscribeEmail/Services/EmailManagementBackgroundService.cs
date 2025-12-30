@@ -233,6 +233,88 @@ namespace UnsubscribeEmail.Services
             }
         }
 
+        public async Task<EmailActionResult> DeleteEmailsAsync(string senderEmail, int daysBack, string accessToken)
+        {
+            try
+            {
+                var httpClient = _httpClientFactory.CreateClient("GraphAPI");
+                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                // Get all emails from this sender within the date range
+                var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var filter = $"from/emailAddress/address eq '{senderEmail}' and receivedDateTime ge {startDate}";
+                var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject&$top=999";
+
+                var emailIds = new List<string>();
+
+                while (!string.IsNullOrEmpty(url))
+                {
+                    var response = await httpClient.GetAsync(url);
+                    response.EnsureSuccessStatusCode();
+
+                    var content = await response.Content.ReadAsStringAsync();
+                    var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+                    if (data.TryGetProperty("value", out var messagesArray))
+                    {
+                        foreach (var message in messagesArray.EnumerateArray())
+                        {
+                            var id = message.GetProperty("id").GetString();
+                            if (!string.IsNullOrEmpty(id))
+                            {
+                                emailIds.Add(id);
+                            }
+                        }
+                    }
+
+                    // Check for next page
+                    url = data.TryGetProperty("@odata.nextLink", out var nextLink)
+                        ? nextLink.GetString() ?? ""
+                        : "";
+                }
+
+                // Delete each email using DELETE
+                var deletedCount = 0;
+                foreach (var emailId in emailIds)
+                {
+                    try
+                    {
+                        var deleteUrl = $"https://graph.microsoft.com/v1.0/me/messages/{emailId}";
+                        var deleteResponse = await httpClient.DeleteAsync(deleteUrl);
+                        if (deleteResponse.IsSuccessStatusCode)
+                        {
+                            deletedCount++;
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"Failed to delete email {emailId}: {deleteResponse.StatusCode}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Error deleting email {emailId}");
+                    }
+                }
+
+                return new EmailActionResult
+                {
+                    Success = true,
+                    Message = $"Deleted {deletedCount} of {emailIds.Count} emails from {senderEmail}",
+                    Count = deletedCount
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error deleting emails from {senderEmail}");
+                return new EmailActionResult
+                {
+                    Success = false,
+                    Message = $"Error: {ex.Message}",
+                    Count = 0
+                };
+            }
+        }
+
         public class EmailMessage
         {
             public string Id { get; set; } = string.Empty;

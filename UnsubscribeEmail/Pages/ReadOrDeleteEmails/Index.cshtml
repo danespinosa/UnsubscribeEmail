@@ -236,10 +236,21 @@
             }
         }
 
-        function deleteEmails(senderEmail) {
-            // TODO: Implement delete emails functionality
-            if (confirm('Are you sure you want to delete all emails from: ' + senderEmail + '?')) {
-                alert('Delete emails from: ' + senderEmail);
+        async function deleteEmails(senderEmail) {
+            if (!confirm(`Are you sure you want to delete all emails from ${senderEmail}? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                // Get the selected days back value from radio buttons
+                const selectedDays = document.querySelector('input[name="daysBack"]:checked');
+                const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
+                
+                // Call SignalR hub method directly
+                await connection.invoke("DeleteEmails", senderEmail, daysBack);
+                
+            } catch (error) {
+                showToast('Error deleting emails: ' + error.message, 'error');
             }
         }
 
