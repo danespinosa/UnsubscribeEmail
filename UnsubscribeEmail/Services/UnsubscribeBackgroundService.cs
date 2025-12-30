@@ -86,9 +86,12 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
             status.CurrentStep = $"Found {emailsBySender.Count} unique senders. Processing unsubscribe links...";
             await SendProgressUpdate(userId, status);
 
+            bool foundAnySenderLinks;
+
             // Step 3: Process each sender
             foreach (var senderGroup in emailsBySender)
             {
+                foundAnySenderLinks = false;
                 var senderEmail = senderGroup.Key;
                 status.ProcessedSenders++;
                 status.CurrentStep = $"Processing sender {status.ProcessedSenders}/{status.TotalSenders}: {senderEmail}";
@@ -113,8 +116,15 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
                     if (!string.IsNullOrEmpty(unsubscribeLink))
                     {
                         _logger.LogInformation($"Found unsubscribe link for {senderEmail}: {unsubscribeLink}");
+                        foundAnySenderLinks = true;
                         break;
                     }
+                }
+
+                if (!foundAnySenderLinks)
+                {
+                    _logger.LogInformation($"No unsubscribe link found for {senderEmail}");
+                    await SaveFailedEmailHtmlAsync(senderGroup.First().Body, senderEmail);
                 }
 
                 var senderInfo = new SenderUnsubscribeInfo
@@ -198,5 +208,29 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
             foundLinks = status.Results.Count(r => r.UnsubscribeLink != null),
             duration = (status.CompletedAt - status.StartedAt)?.TotalSeconds ?? 0
         });
+    }
+
+    private async Task SaveFailedEmailHtmlAsync(string htmlBody, string senderEmail)
+    {
+        try
+        {
+            // Create a directory for failed emails if it doesn't exist
+            var failedEmailsDir = Path.Combine(Directory.GetCurrentDirectory(), "FailedEmails");
+            Directory.CreateDirectory(failedEmailsDir);
+
+            // Sanitize sender email for filename
+            var sanitizedSender = string.Join("_", senderEmail.Split(Path.GetInvalidFileNameChars()));
+
+            // Use a combination of sender and GUID for unique filename
+            var fileName = $"{sanitizedSender}_{Guid.NewGuid()}.html";
+            var filePath = Path.Combine(failedEmailsDir, fileName);
+
+            await File.WriteAllTextAsync(filePath, htmlBody);
+            _logger.LogInformation($"Saved failed email HTML to {filePath}");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Failed to save email HTML for {senderEmail}");
+        }
     }
 }

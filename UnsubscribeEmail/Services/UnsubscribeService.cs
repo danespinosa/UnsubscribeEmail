@@ -62,11 +62,6 @@ public class UnsubscribeService : IUnsubscribeService
                     _logger.LogInformation($"Found unsubscribe link for {senderEmail}: {unsubscribeLink}");
                     break;
                 }
-                else
-                {
-                    // Save HTML for analysis when no link is found
-                    await SaveFailedEmailHtmlAsync(email.Body, senderEmail);
-                }
             }
 
             // Add or update cache
@@ -108,29 +103,5 @@ public class UnsubscribeService : IUnsubscribeService
         }
 
         return fromField.ToLower();
-    }
-
-    private async Task SaveFailedEmailHtmlAsync(string htmlBody, string senderEmail)
-    {
-        try
-        {
-            // Create a directory for failed emails if it doesn't exist
-            var failedEmailsDir = Path.Combine(Directory.GetCurrentDirectory(), "FailedEmails");
-            Directory.CreateDirectory(failedEmailsDir);
-
-            // Sanitize sender email for filename
-            var sanitizedSender = string.Join("_", senderEmail.Split(Path.GetInvalidFileNameChars()));
-            
-            // Use a combination of sender and GUID for unique filename
-            var fileName = $"{sanitizedSender}_{Guid.NewGuid()}.html";
-            var filePath = Path.Combine(failedEmailsDir, fileName);
-
-            await File.WriteAllTextAsync(filePath, htmlBody);
-            _logger.LogInformation($"Saved failed email HTML to {filePath}");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, $"Failed to save email HTML for {senderEmail}");
-        }
     }
 }
