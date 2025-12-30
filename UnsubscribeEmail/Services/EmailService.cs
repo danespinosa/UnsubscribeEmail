@@ -9,7 +9,7 @@ namespace UnsubscribeEmail.Services;
 
 public interface IEmailService
 {
-    Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string? accessToken = null, Action<int, int>? progressCallback = null);
+    Task<List<EmailInfo>> GetEmailsFromDateRangeAsync(int daysBack = 365, string? accessToken = null, Action<int, int>? progressCallback = null);
 }
 
 public class EmailService : IEmailService
@@ -25,7 +25,7 @@ public class EmailService : IEmailService
         _httpClientFactory = httpClientFactory;
     }
 
-    public async Task<List<EmailInfo>> GetEmailsFromCurrentYearAsync(string? accessToken = null, Action<int, int>? progressCallback = null)
+    public async Task<List<EmailInfo>> GetEmailsFromDateRangeAsync(int daysBack = 365, string? accessToken = null, Action<int, int>? progressCallback = null)
     {
         var emails = new List<EmailInfo>();
 
@@ -41,13 +41,12 @@ public class EmailService : IEmailService
             var httpClient = _httpClientFactory.CreateClient();
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
-            // Get emails from current year
-            var currentYear = DateTime.Now.Year;
-            var startOfYear = new DateTime(currentYear, 1, 1);
+            // Get emails from specified days back
+            var startDate = DateTime.Now.AddDays(-daysBack);
             
-            var filter = $"receivedDateTime ge {startOfYear:yyyy-MM-ddTHH:mm:ssZ}";
-            var select = "from,subject,body,receivedDateTime";
-            var top = 999;
+            var filter = $"receivedDateTime ge {startDate:yyyy-MM-ddTHH:mm:ssZ}";
+            var select = "from,toRecipients,subject,body,receivedDateTime";
+            var top = 100;
             
             var nextUrl = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select={select}&$top={top}";
             var pageNumber = 0;
@@ -81,6 +80,18 @@ public class EmailService : IEmailService
                             from = addr.GetString() ?? "";
                         }
 
+                        var to = "";
+                        if (message.TryGetProperty("toRecipients", out var toRecipientsArray) &&
+                            toRecipientsArray.GetArrayLength() > 0)
+                        {
+                            var firstRecipient = toRecipientsArray[0];
+                            if (firstRecipient.TryGetProperty("emailAddress", out var toEmailAddr) &&
+                                toEmailAddr.TryGetProperty("address", out var toAddr))
+                            {
+                                to = toAddr.GetString() ?? "";
+                            }
+                        }
+
                         var subject = message.TryGetProperty("subject", out var subj) ? subj.GetString() ?? "" : "";
                         
                         var body = "";
@@ -99,6 +110,7 @@ public class EmailService : IEmailService
                         emails.Add(new EmailInfo
                         {
                             From = from,
+                            To = to,
                             Subject = subject,
                             Body = body,
                             Date = date
@@ -117,7 +129,7 @@ public class EmailService : IEmailService
                 }
             }
 
-            _logger.LogInformation($"Total emails fetched from {currentYear}: {emails.Count} across {pageNumber} pages");
+            _logger.LogInformation($"Total emails fetched from last {daysBack} days: {emails.Count} across {pageNumber} pages");
         }
         catch (MicrosoftIdentityWebChallengeUserException)
         {

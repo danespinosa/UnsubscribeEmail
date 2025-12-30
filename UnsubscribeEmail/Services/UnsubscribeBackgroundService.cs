@@ -22,14 +22,15 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
         _logger = logger;
     }
 
-    public async Task<string> StartProcessingAsync(string userId, string accessToken)
+    public async Task<string> StartProcessingAsync(string userId, string accessToken, int daysBack = 365)
     {
         var jobId = Guid.NewGuid().ToString();
         var status = new ProcessingStatus
         {
             JobId = jobId,
             UserId = userId,
-            AccessToken = accessToken
+            AccessToken = accessToken,
+            DaysBack = daysBack
         };
 
         _jobs[jobId] = status;
@@ -60,7 +61,8 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
             status.CurrentStep = "Connecting to Microsoft Graph API...";
             await SendProgressUpdate(userId, status);
 
-            var emails = await emailService.GetEmailsFromCurrentYearAsync(
+            var emails = await emailService.GetEmailsFromDateRangeAsync(
+                status.DaysBack,
                 status.AccessToken, 
                 async (emailCount, pageNumber) =>
                 {
@@ -93,11 +95,18 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
                 await SendProgressUpdate(userId, status);
 
                 string? unsubscribeLink = null;
+                string recipientEmail = "";
 
                 // Process emails from this sender until we find an unsubscribe link
                 foreach (var email in senderGroup.OrderByDescending(e => e.Date))
                 {
                     status.ProcessedEmails++;
+
+                    // Capture the recipient email (To field)
+                    if (string.IsNullOrEmpty(recipientEmail) && !string.IsNullOrEmpty(email.To))
+                    {
+                        recipientEmail = email.To;
+                    }
 
                     unsubscribeLink = await linkExtractor.ExtractUnsubscribeLinkAsync(email.Body);
 
@@ -111,6 +120,7 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
                 var senderInfo = new SenderUnsubscribeInfo
                 {
                     SenderEmail = senderEmail,
+                    RecipientEmail = recipientEmail,
                     UnsubscribeLink = unsubscribeLink,
                     LastChecked = DateTime.Now
                 };
@@ -174,6 +184,7 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
         await _hubContext.Clients.User(userId).SendAsync("SenderProcessed", new
         {
             senderEmail = senderInfo.SenderEmail,
+            recipientEmail = senderInfo.RecipientEmail,
             unsubscribeLink = senderInfo.UnsubscribeLink,
             lastChecked = senderInfo.LastChecked.ToString("yyyy-MM-dd HH:mm:ss")
         });

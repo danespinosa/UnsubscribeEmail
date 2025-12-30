@@ -33,7 +33,7 @@ public class IndexModel : PageModel
         // Page loads empty, processing starts via JavaScript
     }
 
-    public async Task<IActionResult> OnPostStartProcessingAsync()
+    public async Task<IActionResult> OnPostStartProcessingAsync([FromBody] ProcessingRequest request)
     {
         try
         {
@@ -42,7 +42,13 @@ public class IndexModel : PageModel
             var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
             
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.Identity?.Name ?? "anonymous";
-            var jobId = await _backgroundService.StartProcessingAsync(userId, accessToken);
+            
+            // Validate daysBack parameter (1-365 days)
+            var daysBack = request.DaysBack ?? 365;
+            if (daysBack < 1) daysBack = 1;
+            if (daysBack > 365) daysBack = 365;
+            
+            var jobId = await _backgroundService.StartProcessingAsync(userId, accessToken, daysBack);
             
             return new JsonResult(new { success = true, jobId });
         }
@@ -52,4 +58,9 @@ public class IndexModel : PageModel
             return new JsonResult(new { success = false, error = ex.Message });
         }
     }
+}
+
+public class ProcessingRequest
+{
+    public int? DaysBack { get; set; }
 }

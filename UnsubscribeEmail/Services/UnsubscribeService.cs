@@ -30,8 +30,8 @@ public class UnsubscribeService : IUnsubscribeService
     {
         _logger.LogInformation("Starting to fetch emails and extract unsubscribe links...");
 
-        var emails = await _emailService.GetEmailsFromCurrentYearAsync();
-        _logger.LogInformation($"Retrieved {emails.Count} emails from current year");
+        var emails = await _emailService.GetEmailsFromDateRangeAsync();
+        _logger.LogInformation($"Retrieved {emails.Count} emails from date range");
 
         // Group emails by sender
         var emailsBySender = emails

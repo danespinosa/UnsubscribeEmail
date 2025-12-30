@@ -32,6 +32,24 @@
     
     <div id="resultsSection">
         <div id="initialState" class="text-center mb-4">
+            <h5 class="mb-3">Select how far back to search</h5>
+            <div class="btn-group mb-3" role="group" aria-label="Days selection">
+                <input type="radio" class="btn-check" name="daysBack" id="days7" value="7" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days7">7 days</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days30" value="30" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days30">30 days</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days90" value="90" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days90">90 days</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days180" value="180" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days180">6 months</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days365" value="365" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="days365">1 year</label>
+            </div>
+            <br>
             <button type="button" id="startButton" class="btn btn-primary btn-lg">
                 <i class="bi bi-play-fill"></i> Start Processing Emails
             </button>
@@ -47,6 +65,7 @@
                         <tr>
                             <th scope="col">#</th>
                             <th scope="col">Sender Email</th>
+                            <th scope="col">Recipient Email</th>
                             <th scope="col">Unsubscribe Link</th>
                             <th scope="col">Last Checked</th>
                         </tr>
@@ -97,6 +116,7 @@
             row.innerHTML = `
                 <th scope="row">${senderCount}</th>
                 <td>${sender.senderEmail}</td>
+                <td><span class="badge bg-secondary">${sender.recipientEmail || 'Unknown'}</span></td>
                 <td>
                     ${sender.unsubscribeLink 
                         ? `<a href="${sender.unsubscribeLink}" target="_blank" class="btn btn-sm btn-primary">Unsubscribe</a>
@@ -134,6 +154,10 @@
 
         document.getElementById('startButton').addEventListener('click', async function () {
             try {
+                // Get selected days back value
+                const selectedDays = document.querySelector('input[name="daysBack"]:checked');
+                const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
+                
                 document.getElementById('initialState').style.display = 'none';
                 document.getElementById('progressSection').style.display = 'block';
                 
@@ -148,7 +172,8 @@
                 
                 const response = await fetch('?handler=StartProcessing', {
                     method: 'POST',
-                    headers: headers
+                    headers: headers,
+                    body: JSON.stringify({ daysBack: daysBack })
                 });
                 
                 const result = await response.json();

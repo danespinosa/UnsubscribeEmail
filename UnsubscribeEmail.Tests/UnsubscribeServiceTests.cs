@@ -23,7 +23,7 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithNoEmails_ReturnsEmptyList()
     {
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(new List<EmailInfo>());
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
@@ -39,7 +39,7 @@ public class UnsubscribeServiceTests
             new EmailInfo { From = "sender@example.com", Subject = "Test", Body = "No link here", Date = DateTime.Now }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
@@ -66,7 +66,7 @@ public class UnsubscribeServiceTests
             }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
@@ -107,7 +107,7 @@ public class UnsubscribeServiceTests
             }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         var callCount = 0;
@@ -156,7 +156,7 @@ public class UnsubscribeServiceTests
             }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.Is<string>(s => s.Contains("example1.com"))))
@@ -190,7 +190,7 @@ public class UnsubscribeServiceTests
             }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
@@ -216,7 +216,7 @@ public class UnsubscribeServiceTests
             }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
@@ -249,7 +249,7 @@ public class UnsubscribeServiceTests
             }
         };
 
-        _mockEmailService.Setup(x => x.GetEmailsFromCurrentYearAsync())
+        _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
             .ReturnsAsync(emails);
 
         string? firstBodyProcessed = null;
