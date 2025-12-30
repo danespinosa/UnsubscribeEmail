@@ -115,20 +115,23 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 
         try
         {
-            // Find the word "unsubscribe" or related keywords and extract context around it
-            var contextSnippet = ExtractUnsubscribeContext(emailBody);
+            // Try multiple context windows to increase chances of finding the link
+            var contextSnippets = ExtractMultipleUnsubscribeContexts(emailBody);
             
             // If no unsubscribe context found, return the regex result (even if malformed)
-            if (string.IsNullOrEmpty(contextSnippet))
+            if (contextSnippets.Count == 0)
             {
                 _logger.LogInformation("No unsubscribe context found for model processing");
                 return regexLink;
             }
 
-            _logger.LogInformation("Processing with Phi3 model...");
+            _logger.LogInformation($"Processing {contextSnippets.Count} context(s) with Phi3 model...");
 
-            // Create prompt for the model with better instructions
-            var prompt = $@"<|system|>
+            // Try each context until we find a valid link
+            foreach (var contextSnippet in contextSnippets)
+            {
+                // Create prompt for the model with better instructions
+                var prompt = $@"<|system|>
 You are an email parser that extracts unsubscribe links from HTML emails. Extract complete URLs only.
 <|end|>
 <|user|>
@@ -144,57 +147,105 @@ Return ONLY the complete unsubscribe URL starting with http:// or https://, noth
 <|end|>
 <|assistant|>";
 
-            var sequences = _tokenizer.Encode(prompt);
-            
-            using var generatorParams = new GeneratorParams(_model);
-            // max_length is total tokens (input + output), increase to handle larger context
-            generatorParams.SetSearchOption("max_length", 2048);
-            generatorParams.SetSearchOption("min_length", 10); // Ensure some output
-            generatorParams.SetSearchOption("do_sample", false); // Deterministic output
-            generatorParams.SetSearchOption("top_k", 1); // Greedy decoding for consistency
-            
-            using var generator = new Generator(_model, generatorParams);
-            generator.AppendTokenSequences(sequences);
-            
-            // Generate response
-            while (!generator.IsDone())
-            {
-                generator.GenerateNextToken();
-            }
-
-            var outputSequences = generator.GetSequence(0);
-            var output = _tokenizer.Decode(outputSequences);
-            
-            // Extract URL from output
-            var link = ExtractUrlFromText(output);
-            
-            if (!string.IsNullOrEmpty(link))
-            {
-                // Validate the URL from model
-                if (IsValidUrl(link))
+                var sequences = _tokenizer.Encode(prompt);
+                
+                using var generatorParams = new GeneratorParams(_model);
+                // max_length is total tokens (input + output), increase to handle larger context
+                generatorParams.SetSearchOption("max_length", 2048);
+                generatorParams.SetSearchOption("min_length", 10); // Ensure some output
+                generatorParams.SetSearchOption("do_sample", false); // Deterministic output
+                generatorParams.SetSearchOption("top_k", 1); // Greedy decoding for consistency
+                
+                using var generator = new Generator(_model, generatorParams);
+                generator.AppendTokenSequences(sequences);
+                
+                // Generate response
+                while (!generator.IsDone())
                 {
-                    _logger.LogInformation($"Phi3 model extraction successful: {link}");
-                    return link;
+                    generator.GenerateNextToken();
+                }
+
+                var outputSequences = generator.GetSequence(0);
+                var output = _tokenizer.Decode(outputSequences);
+                
+                // Extract URL from output
+                var link = ExtractUrlFromText(output);
+                
+                if (!string.IsNullOrEmpty(link))
+                {
+                    // Validate the URL from model
+                    if (IsValidUrl(link))
+                    {
+                        _logger.LogInformation($"Phi3 model extraction successful: {link}");
+                        return link;
+                    }
+                    else
+                    {
+                        _logger.LogInformation($"Phi3 model extracted invalid URL: {link}");
+                    }
                 }
                 else
                 {
-                    _logger.LogWarning($"Phi3 model returned malformed URL: {link}");
-                    // Return regex result if available, otherwise null
-                    return regexLink;
+                    _logger.LogInformation($"Phi3 model did not return a valid URL for context snippet");
                 }
             }
-            else
-            {
-                _logger.LogInformation("Phi3 model did not find a link");
-                // Return regex result if available, otherwise null
-                return regexLink;
-            }
+            
+            // Fall back to regex result if model didn't find a valid URL in any context
+            _logger.LogInformation("No valid URL found in any context, falling back to regex result");
+            return regexLink;
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error using Phi3 model to extract unsubscribe link");
-            return null;
+            _logger.LogError(ex, "Error using Phi3 model for extraction, falling back to regex");
+            return regexLink;
         }
+    }
+
+    private List<string> ExtractMultipleUnsubscribeContexts(string emailBody)
+    {
+        var contexts = new List<string>();
+        var keywords = new[] { "unsubscribe", "opt-out", "opt out", "optout", "manage preferences", "email preferences" };
+        
+        // Find all occurrences of keywords and extract contexts around them
+        var keywordPositions = new List<(int position, string keyword)>();
+        
+        foreach (var keyword in keywords)
+        {
+            var index = 0;
+            while ((index = emailBody.IndexOf(keyword, index, StringComparison.OrdinalIgnoreCase)) != -1)
+            {
+                keywordPositions.Add((index, keyword));
+                index += keyword.Length;
+            }
+        }
+        
+        if (keywordPositions.Count == 0)
+        {
+            return contexts;
+        }
+        
+        // Sort by position
+        keywordPositions.Sort((a, b) => a.position.CompareTo(b.position));
+        
+        // Take the first 2 occurrences to avoid processing too much
+        var positionsToProcess = keywordPositions.Take(2).ToList();
+        
+        foreach (var (position, keyword) in positionsToProcess)
+        {
+            // Extract context: 1000 chars before AND 1000 chars after the keyword
+            // This ensures we capture links that come both before and after the keyword
+            var startPos = Math.Max(0, position - 1000);
+            var endPos = Math.Min(emailBody.Length, position + keyword.Length + 1000);
+            
+            var length = endPos - startPos;
+            var context = emailBody.Substring(startPos, length);
+            
+            _logger.LogInformation($"Extracted context snippet #{contexts.Count + 1} (length: {context.Length}) centered around '{keyword}' at position {position}");
+            
+            contexts.Add(context);
+        }
+        
+        return contexts;
     }
 
     private string? ExtractUnsubscribeContext(string emailBody)
