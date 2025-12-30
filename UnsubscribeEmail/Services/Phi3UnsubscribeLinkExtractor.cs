@@ -131,11 +131,9 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             foreach (var contextSnippet in contextSnippets)
             {
                 // Create prompt for the model with better instructions
-                var prompt = $@"<|system|>
-You are an email parser that extracts unsubscribe links from HTML emails. Extract complete URLs from href attributes.
-<|end|>
-<|user|>
-Find the unsubscribe link in this email HTML. The link may be:
+                var prompt = $@"
+You are an email parser that extracts unsubscribe links from HTML emails.
+Find the unsubscribe link in this email HTML to parse. The link may be:
 - In an <a href=""""> tag after text like 'To unsubscribe', 'no longer wish to receive', or 'opt-out'
 - In an <a> tag where the link text says 'click here', 'here', 'unsubscribe', or similar
 - A complete URL in the href attribute starting with http:// or https://
@@ -146,12 +144,16 @@ Example patterns:
 - Click <a href=""https://example.com/optout"">here</a> to unsubscribe
 - <a href=""https://unsubscribe.example.com"">Unsubscribe</a>
 
-Email HTML:
-{contextSnippet}
+Extract ONLY the complete URL from the href attribute. Return the full URL including all parameters without the <a> tag. If no unsubscribe link found, return NONE.
+Example Outputs:
+ https://example.com/unsub?id=123
+ https://example.com/optout
+ https://unsubscribe.example.com
+ NONE
+Dont write code or return code just return the URL that you found. Also, returning SafeLink URL is expected.
 
-Extract ONLY the complete URL from the href attribute. Return the full URL including all parameters. If no unsubscribe link found, return NONE.
-<|end|>
-<|assistant|>";
+Email HTML to parse:
+{contextSnippet}";
 
                 var sequences = _tokenizer.Encode(prompt);
                 
@@ -175,8 +177,7 @@ Extract ONLY the complete URL from the href attribute. Return the full URL inclu
                 var output = _tokenizer.Decode(outputSequences);
                 
                 // Extract URL from output
-                var link = ExtractUrlFromText(output);
-                
+                var link = ExtractUrlFromText(output, prompt);
                 if (!string.IsNullOrEmpty(link))
                 {
                     // Validate the URL from model
@@ -266,7 +267,7 @@ Extract ONLY the complete URL from the href attribute. Return the full URL inclu
 
     private string FindNearestAnchorTag(string html, int keywordPosition)
     {
-        const int searchRadius = 500; // Search within 500 chars before and after keyword
+        const int searchRadius = 2000; // Search within 500 chars before and after keyword
         
         var searchStart = Math.Max(0, keywordPosition - searchRadius);
         var searchEnd = Math.Min(html.Length, keywordPosition + searchRadius);
@@ -478,8 +479,27 @@ Extract ONLY the complete URL from the href attribute. Return the full URL inclu
         return true;
     }
 
-    private string? ExtractUrlFromText(string text)
+    private string? ExtractUrlFromText(string text, string prompt)
     {
+        // compare text to prompt to remove any echoed prompt
+        if (text.StartsWith(prompt, StringComparison.OrdinalIgnoreCase))
+        {
+            text = text.Substring(prompt.Length);
+        }
+
+        // if text contains [response]: take the text after that until the first carriage return
+        var responseIndex = text.IndexOf("[response]:", StringComparison.OrdinalIgnoreCase);
+        // If found, extract text after it until the first line break or carriage return
+        if (responseIndex != -1)
+        {
+            text = text.Substring(responseIndex + "[response]:".Length);
+            var lineEndIndex = text.IndexOfAny(new[] { '\r', '\n' });
+            if (lineEndIndex != -1)
+            {
+                text = text.Substring(0, lineEndIndex);
+            }
+        }
+
         // Remove the original prompt from the output if present
         var assistantIndex = text.IndexOf("<|assistant|>", StringComparison.OrdinalIgnoreCase);
         if (assistantIndex != -1)

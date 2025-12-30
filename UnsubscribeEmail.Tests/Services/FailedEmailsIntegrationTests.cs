@@ -16,12 +16,10 @@ public class FailedEmailsIntegrationTests
     {
         _output = output;
         _failedEmailsDirectory = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "..", "..", "..", "..", "..", "FailedEmails");
+            "..", "..", "..", "..", "UnsubscribeEmail", "FailedEmails");
 
         _modelPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "..", "..", "..", "..", "..", "..", "..",
+            "..", "..", "..", "..", "..",
             "Phi-3-mini-4k-instruct-onnx", "cpu_and_mobile", "cpu-int4-rtn-block-32-acc-level-4");
     }
 
