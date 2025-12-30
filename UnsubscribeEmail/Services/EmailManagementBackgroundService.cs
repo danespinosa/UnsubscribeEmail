@@ -56,24 +56,56 @@ namespace UnsubscribeEmail.Services
             }
         }
 
-        public async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, string connectionId, string accessToken)
+        private async Task<string?> GetDeletedItemsFolderIdAsync(HttpClient httpClient)
         {
-            var emails = new List<EmailMessage>();
-            var httpClient = _httpClientFactory.CreateClient("GraphAPI");
-            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-
-            // First, get the Deleted Items folder ID
-            await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveProgress", "Getting folder information...");
             var foldersResponse = await httpClient.GetAsync("https://graph.microsoft.com/v1.0/me/mailFolders?$filter=displayName eq 'Deleted Items'&$select=id");
             foldersResponse.EnsureSuccessStatusCode();
             var foldersContent = await foldersResponse.Content.ReadAsStringAsync();
             var foldersData = JsonSerializer.Deserialize<JsonElement>(foldersContent);
             
-            string deletedItemsFolderId = null;
             if (foldersData.TryGetProperty("value", out var folderValue) && folderValue.GetArrayLength() > 0)
             {
-                deletedItemsFolderId = folderValue[0].GetProperty("id").GetString();
+                return folderValue[0].GetProperty("id").GetString();
             }
+            return null;
+        }
+
+        private async Task<string> GetUserEmailAsync(HttpClient httpClient)
+        {
+            var userResponse = await httpClient.GetAsync("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName");
+            userResponse.EnsureSuccessStatusCode();
+            var userContent = await userResponse.Content.ReadAsStringAsync();
+            var userData = JsonSerializer.Deserialize<JsonElement>(userContent);
+            
+            // Try 'mail' first, fallback to 'userPrincipalName'
+            if (userData.TryGetProperty("mail", out var mail) && !string.IsNullOrEmpty(mail.GetString()))
+            {
+                return mail.GetString() ?? "";
+            }
+            
+            if (userData.TryGetProperty("userPrincipalName", out var upn))
+            {
+                return upn.GetString() ?? "";
+            }
+            
+            return "";
+        }
+
+        private HttpClient CreateAuthenticatedClient(string accessToken)
+        {
+            var httpClient = _httpClientFactory.CreateClient("GraphAPI");
+            httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            return httpClient;
+        }
+
+        public async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, string connectionId, string accessToken)
+        {
+            var emails = new List<EmailMessage>();
+            var httpClient = CreateAuthenticatedClient(accessToken);
+
+            // First, get the Deleted Items folder ID
+            await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveProgress", "Getting folder information...");
+            var deletedItemsFolderId = await GetDeletedItemsFolderIdAsync(httpClient);
 
             var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
             var filter = $"receivedDateTime ge {startDate} and isDraft eq false";
@@ -171,25 +203,28 @@ namespace UnsubscribeEmail.Services
         {
             try
             {
-                var httpClient = _httpClientFactory.CreateClient("GraphAPI");
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var httpClient = CreateAuthenticatedClient(accessToken);
+                var deletedItemsFolderId = await GetDeletedItemsFolderIdAsync(httpClient);
 
-                // First, get the Deleted Items folder ID
-                var foldersResponse = await httpClient.GetAsync("https://graph.microsoft.com/v1.0/me/mailFolders?$filter=displayName eq 'Deleted Items'&$select=id");
-                foldersResponse.EnsureSuccessStatusCode();
-                var foldersContent = await foldersResponse.Content.ReadAsStringAsync();
-                var foldersData = JsonSerializer.Deserialize<JsonElement>(foldersContent);
-                
-                string deletedItemsFolderId = null;
-                if (foldersData.TryGetProperty("value", out var folderValue) && folderValue.GetArrayLength() > 0)
-                {
-                    deletedItemsFolderId = folderValue[0].GetProperty("id").GetString();
-                }
+                // Get the current user's email address
+                var userEmail = await GetUserEmailAsync(httpClient);
 
-                // Get all emails from this sender within the date range
                 var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
-                var filter = $"from/emailAddress/address eq '{senderEmail}' and receivedDateTime ge {startDate}";
-                var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,isRead,parentFolderId&$top=999";
+                string filter;
+                string url;
+
+                // If querying for own emails, we need to get all emails and filter in C# because
+                // Graph API returns 0 results when filtering inbox for emails from yourself
+                if (senderEmail.Equals(userEmail, StringComparison.OrdinalIgnoreCase))
+                {
+                    filter = $"receivedDateTime ge {startDate}";
+                    url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,isRead,from,parentFolderId&$top=999";
+                }
+                else
+                {
+                    filter = $"from/emailAddress/address eq '{senderEmail}' and receivedDateTime ge {startDate}";
+                    url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,isRead,parentFolderId&$top=999";
+                }
 
                 var emailIds = new List<string>();
                 var unreadCount = 0;
@@ -211,6 +246,25 @@ namespace UnsubscribeEmail.Services
                             {
                                 var parentFolder = parentFolderId.GetString();
                                 if (!string.IsNullOrEmpty(deletedItemsFolderId) && parentFolder == deletedItemsFolderId)
+                                {
+                                    continue;
+                                }
+                            }
+
+                            // If querying own emails, filter by sender in C#
+                            if (senderEmail.Equals(userEmail, StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (message.TryGetProperty("from", out var from) &&
+                                    from.TryGetProperty("emailAddress", out var emailAddress) &&
+                                    emailAddress.TryGetProperty("address", out var address))
+                                {
+                                    var fromEmail = address.GetString() ?? "";
+                                    if (!fromEmail.Equals(senderEmail, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        continue;
+                                    }
+                                }
+                                else
                                 {
                                     continue;
                                 }
@@ -284,25 +338,28 @@ namespace UnsubscribeEmail.Services
         {
             try
             {
-                var httpClient = _httpClientFactory.CreateClient("GraphAPI");
-                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+                var httpClient = CreateAuthenticatedClient(accessToken);
+                var deletedItemsFolderId = await GetDeletedItemsFolderIdAsync(httpClient);
 
-                // First, get the Deleted Items folder ID
-                var foldersResponse = await httpClient.GetAsync("https://graph.microsoft.com/v1.0/me/mailFolders?$filter=displayName eq 'Deleted Items'&$select=id");
-                foldersResponse.EnsureSuccessStatusCode();
-                var foldersContent = await foldersResponse.Content.ReadAsStringAsync();
-                var foldersData = JsonSerializer.Deserialize<JsonElement>(foldersContent);
-                
-                string deletedItemsFolderId = null;
-                if (foldersData.TryGetProperty("value", out var folderValue) && folderValue.GetArrayLength() > 0)
-                {
-                    deletedItemsFolderId = folderValue[0].GetProperty("id").GetString();
-                }
+                // Get the current user's email address
+                var userEmail = await GetUserEmailAsync(httpClient);
 
-                // Get all emails from this sender within the date range
                 var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
-                var filter = $"from/emailAddress/address eq '{senderEmail}' and receivedDateTime ge {startDate}";
-                var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,parentFolderId&$top=999";
+                string filter;
+                string url;
+
+                // If querying for own emails, we need to get all emails and filter in C# because
+                // Graph API returns 0 results when filtering inbox for emails from yourself
+                if (senderEmail.Equals(userEmail, StringComparison.OrdinalIgnoreCase))
+                {
+                    filter = $"receivedDateTime ge {startDate}";
+                    url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,from,parentFolderId&$top=999";
+                }
+                else
+                {
+                    filter = $"from/emailAddress/address eq '{senderEmail}' and receivedDateTime ge {startDate}";
+                    url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,parentFolderId&$top=999";
+                }
 
                 var emailIds = new List<string>();
 
@@ -323,6 +380,25 @@ namespace UnsubscribeEmail.Services
                             {
                                 var parentFolder = parentFolderId.GetString();
                                 if (!string.IsNullOrEmpty(deletedItemsFolderId) && parentFolder == deletedItemsFolderId)
+                                {
+                                    continue;
+                                }
+                            }
+
+                            // If querying own emails, filter by sender in C#
+                            if (senderEmail.Equals(userEmail, StringComparison.OrdinalIgnoreCase))
+                            {
+                                if (message.TryGetProperty("from", out var from) &&
+                                    from.TryGetProperty("emailAddress", out var emailAddress) &&
+                                    emailAddress.TryGetProperty("address", out var address))
+                                {
+                                    var fromEmail = address.GetString() ?? "";
+                                    if (!fromEmail.Equals(senderEmail, StringComparison.OrdinalIgnoreCase))
+                                    {
+                                        continue;
+                                    }
+                                }
+                                else
                                 {
                                     continue;
                                 }

@@ -3,7 +3,6 @@ using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using UnsubscribeEmail.Hubs;
 using UnsubscribeEmail.Services;
-using MSGraph = Microsoft.Graph;
 
 var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(args);
 
