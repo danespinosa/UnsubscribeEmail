@@ -163,7 +163,6 @@
 
         connection.on("ReceiveError", function (error) {
             showError(error);
-            document.getElementById('initialState').style.display = 'block';
             document.getElementById('progressSection').style.display = 'none';
         });
 
@@ -180,11 +179,15 @@
 
         document.getElementById('startButton').addEventListener('click', async function () {
             try {
+                // Reset results
+                senderCount = 0;
+                document.getElementById('resultsBody').innerHTML = '';
+                document.getElementById('resultsTable').style.display = 'none';
+                
                 // Get selected days back value
                 const selectedDays = document.querySelector('input[name="daysBack"]:checked');
                 const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
                 
-                document.getElementById('initialState').style.display = 'none';
                 document.getElementById('progressSection').style.display = 'block';
                 
                 const token = document.querySelector('input[name="__RequestVerificationToken"]');
@@ -208,12 +211,10 @@
                 
                 if (!result.success) {
                     showError(result.error || 'Failed to start processing');
-                    document.getElementById('initialState').style.display = 'block';
                     document.getElementById('progressSection').style.display = 'none';
                 }
             } catch (error) {
                 showError('Error starting processing: ' + error.message);
-                document.getElementById('initialState').style.display = 'block';
                 document.getElementById('progressSection').style.display = 'none';
             }
         });
