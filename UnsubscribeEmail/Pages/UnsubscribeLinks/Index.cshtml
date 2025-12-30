@@ -116,10 +116,15 @@
             const tbody = document.getElementById('resultsBody');
             const row = tbody.insertRow(0); // Insert at top
             
+            const recipientEmail = sender.recipientEmail || 'Unknown';
+            const displayRecipient = recipientEmail.length > 24 
+                ? recipientEmail.substring(0, 24) + '...' 
+                : recipientEmail;
+            
             row.innerHTML = `
                 <th scope="row">${senderCount}</th>
                 <td>${sender.senderEmail}</td>
-                <td><span class="badge bg-secondary">${sender.recipientEmail || 'Unknown'}</span></td>
+                <td><span class="badge bg-secondary" title="${recipientEmail}">${displayRecipient}</span></td>
                 <td>
                     ${sender.unsubscribeLink 
                         ? `<a href="${sender.unsubscribeLink}" target="_blank" class="btn btn-sm btn-primary">Unsubscribe</a>
