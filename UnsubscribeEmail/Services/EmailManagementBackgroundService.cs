@@ -63,7 +63,7 @@ namespace UnsubscribeEmail.Services
             httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
             var filter = $"receivedDateTime ge {startDate}";
-            var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,from,receivedDateTime&$top=999&$orderby=receivedDateTime desc";
+            var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,from,toRecipients,receivedDateTime&$top=999&$orderby=receivedDateTime desc";
 
             var pageCount = 0;
             while (!string.IsNullOrEmpty(url))
@@ -97,6 +97,18 @@ namespace UnsubscribeEmail.Services
                             email.SenderEmail = emailAddress.TryGetProperty("address", out var address) ? address.GetString() ?? "" : "";
                         }
 
+                        // Get recipient email (first toRecipient)
+                        if (message.TryGetProperty("toRecipients", out var toRecipients) && toRecipients.GetArrayLength() > 0)
+                        {
+                            var firstRecipient = toRecipients[0];
+                            if (firstRecipient.TryGetProperty("emailAddress", out var recipientEmailAddress))
+                            {
+                                email.RecipientEmail = recipientEmailAddress.TryGetProperty("address", out var recipientAddress) 
+                                    ? recipientAddress.GetString() ?? "" 
+                                    : "";
+                            }
+                        }
+
                         emails.Add(email);
                     }
                 }
@@ -120,6 +132,7 @@ namespace UnsubscribeEmail.Services
                 {
                     SenderEmail = g.First().SenderEmail,
                     SenderName = g.First().SenderName,
+                    RecipientEmail = g.First().RecipientEmail,
                     EmailCount = g.Count(),
                     EmailIds = g.Select(e => e.Id).ToList(),
                     LastEmailDate = g.Max(e => e.ReceivedDateTime)
@@ -135,6 +148,7 @@ namespace UnsubscribeEmail.Services
             public string Subject { get; set; } = string.Empty;
             public string SenderName { get; set; } = string.Empty;
             public string SenderEmail { get; set; } = string.Empty;
+            public string RecipientEmail { get; set; } = string.Empty;
             public DateTime ReceivedDateTime { get; set; }
         }
     }
