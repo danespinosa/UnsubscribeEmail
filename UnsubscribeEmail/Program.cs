@@ -49,6 +49,7 @@ if (hasAzureAdConfig)
     builder.Services.AddSingleton<IUnsubscribeLinkExtractor, Phi3UnsubscribeLinkExtractor>();
     builder.Services.AddScoped<IUnsubscribeService, UnsubscribeService>();
     builder.Services.AddSingleton<IUnsubscribeBackgroundService, UnsubscribeBackgroundService>();
+    builder.Services.AddSingleton<IEmailManagementBackgroundService, EmailManagementBackgroundService>();
 }
 else
 {
@@ -84,6 +85,7 @@ if (hasAzureAdConfig)
 {
     app.MapControllers();
     app.MapHub<UnsubscribeProgressHub>("/unsubscribeProgressHub");
+    app.MapHub<EmailManagementHub>("/emailManagementHub");
 }
 
 app.Run();

@@ -1,0 +1,230 @@
+@page
+@model UnsubscribeEmail.Pages.ReadOrDeleteEmails.IndexModel
+@{
+    ViewData["Title"] = "Read or Delete Emails";
+}
+
+<form method="post">
+<div class="container mt-5">
+    <h1 class="mb-4">Email Management - Read or Delete</h1>
+    
+    <div id="errorAlert" class="alert alert-danger" role="alert" style="display: none;">
+        <span id="errorMessage"></span>
+    </div>
+    
+    <div id="progressSection" style="display: none;">
+        <div class="card mb-4">
+            <div class="card-body">
+                <h5 class="card-title">Processing Status</h5>
+                <p id="statusMessage" class="card-text">Initializing...</p>
+                <div class="progress" style="height: 25px;">
+                    <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" 
+                         role="progressbar" style="width: 0%;" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100">
+                        0%
+                    </div>
+                </div>
+                <small class="text-muted mt-2 d-block">
+                    <span id="processedInfo">Processed: 0/0 emails</span>
+                </small>
+            </div>
+        </div>
+    </div>
+    
+    <div id="resultsSection">
+        <div id="initialState" class="text-center mb-4">
+            <h5 class="mb-3">Select how far back to search</h5>
+            <div class="btn-group mb-3" role="group" aria-label="Days selection">
+                <input type="radio" class="btn-check" name="daysBack" id="days1" value="1" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days1">1 day</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days7" value="7" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days7">7 days</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days30" value="30" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days30">30 days</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days90" value="90" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days90">90 days</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days180" value="180" autocomplete="off">
+                <label class="btn btn-outline-primary" for="days180">6 months</label>
+                
+                <input type="radio" class="btn-check" name="daysBack" id="days365" value="365" autocomplete="off" checked>
+                <label class="btn btn-outline-primary" for="days365">1 year</label>
+            </div>
+            <br>
+            <button type="button" id="startButton" class="btn btn-primary btn-lg">
+                <i class="bi bi-play-fill"></i> Load Senders
+            </button>
+            <p class="text-muted mt-3">Click to fetch email senders from your inbox</p>
+        </div>
+        
+        <div id="resultsTable" style="display: none;">
+            <p class="lead">Found <span id="totalSenders">0</span> sender(s) from emails.</p>
+            
+            <div class="table-responsive">
+                <table class="table table-striped table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th scope="col">#</th>
+                            <th scope="col">Sender Email</th>
+                            <th scope="col">Recipient Email</th>
+                            <th scope="col">Email Count</th>
+                            <th scope="col">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="resultsBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <div class="mt-3">
+                <p class="text-muted">
+                    <strong>Summary:</strong> 
+                    Total of <span id="summaryTotal">0</span> senders found.
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+</form>
+
+@section Scripts {
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <script>
+        let senderCount = 0;
+
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("/emailManagementHub")
+            .withAutomaticReconnect()
+            .build();
+
+        connection.on("ReceiveProgress", function (data) {
+            const message = typeof data === 'string' ? data : data.step || 'Processing...';
+            document.getElementById('statusMessage').textContent = message;
+        });
+
+        connection.on("ReceiveStatus", function (status) {
+            document.getElementById('statusMessage').textContent = status;
+        });
+
+        connection.on("ReceiveSenderEmail", function (sender) {
+            senderCount++;
+            const tbody = document.getElementById('resultsBody');
+            const row = tbody.insertRow(0); // Insert at top
+            
+            row.innerHTML = `
+                <th scope="row">${senderCount}</th>
+                <td>${escapeHtml(sender.senderEmail)}</td>
+                <td><span class="badge bg-secondary">${escapeHtml(sender.recipientEmail || sender.senderName || 'Unknown')}</span></td>
+                <td><span class="badge bg-info">${sender.emailCount}</span></td>
+                <td>
+                    <button class="btn btn-sm btn-success me-2" onclick="readEmails('${escapeHtml(sender.senderEmail)}')">
+                        <i class="bi bi-envelope-open"></i> Read Emails
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="deleteEmails('${escapeHtml(sender.senderEmail)}')">
+                        <i class="bi bi-trash"></i> Delete Emails
+                    </button>
+                </td>
+            `;
+            
+            document.getElementById('totalSenders').textContent = senderCount;
+            document.getElementById('summaryTotal').textContent = senderCount;
+            
+            // Show results table
+            document.getElementById('resultsTable').style.display = 'block';
+        });
+
+        connection.on("ReceiveComplete", function (data) {
+            document.getElementById('statusMessage').textContent = 
+                `✓ Complete! Found ${data.uniqueSenders || senderCount} senders from ${data.totalEmails || 0} emails.`;
+            document.getElementById('progressBar').classList.remove('progress-bar-animated');
+            document.getElementById('progressBar').classList.add('bg-success');
+            
+            const progressBar = document.getElementById('progressBar');
+            progressBar.style.width = '100%';
+            progressBar.setAttribute('aria-valuenow', 100);
+            progressBar.textContent = '100%';
+        });
+
+        connection.on("ReceiveError", function (error) {
+            showError(error);
+            document.getElementById('initialState').style.display = 'block';
+            document.getElementById('progressSection').style.display = 'none';
+        });
+
+        connection.start().then(function () {
+            console.log("SignalR connected");
+        }).catch(function (err) {
+            console.error(err.toString());
+            showError("Failed to connect to real-time updates: " + err.toString());
+        });
+
+        document.getElementById('startButton').addEventListener('click', async function () {
+            try {
+                // Get selected days back value
+                const selectedDays = document.querySelector('input[name="daysBack"]:checked');
+                const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
+                
+                document.getElementById('initialState').style.display = 'none';
+                document.getElementById('progressSection').style.display = 'block';
+                
+                const token = document.querySelector('input[name="__RequestVerificationToken"]');
+                const headers = {
+                    'Content-Type': 'application/json',
+                    'X-SignalR-ConnectionId': connection.connectionId
+                };
+                
+                if (token) {
+                    headers['RequestVerificationToken'] = token.value;
+                }
+                
+                const response = await fetch('?handler=StartProcessing', {
+                    method: 'POST',
+                    headers: headers,
+                    body: JSON.stringify({ daysBack: daysBack })
+                });
+                
+                const result = await response.json();
+                
+                if (!result.success) {
+                    showError(result.error || 'Failed to start processing');
+                    document.getElementById('initialState').style.display = 'block';
+                    document.getElementById('progressSection').style.display = 'none';
+                }
+            } catch (error) {
+                showError('Error starting processing: ' + error.message);
+                document.getElementById('initialState').style.display = 'block';
+                document.getElementById('progressSection').style.display = 'none';
+            }
+        });
+
+        function readEmails(senderEmail) {
+            // TODO: Implement read emails functionality
+            alert('Read emails from: ' + senderEmail);
+        }
+
+        function deleteEmails(senderEmail) {
+            // TODO: Implement delete emails functionality
+            if (confirm('Are you sure you want to delete all emails from: ' + senderEmail + '?')) {
+                alert('Delete emails from: ' + senderEmail);
+            }
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorAlert').style.display = 'block';
+        }
+
+        function escapeHtml(text) {
+            const map = {
+                '&': '&amp;',
+                '<': '&lt;',
+                '>': '&gt;',
+                '"': '&quot;',
+                "'": '&#039;'
+            };
+            return String(text).replace(/[&<>"']/g, m => map[m]);
+        }
+    </script>
+}
