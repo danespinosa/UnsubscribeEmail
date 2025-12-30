@@ -1,9 +1,21 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.Identity.Web;
+using UnsubscribeEmail.Services;
 
 namespace UnsubscribeEmail.Hubs
 {
     public class EmailManagementHub : Hub
     {
+        private readonly IEmailManagementBackgroundService _emailManagementService;
+        private readonly ILogger<EmailManagementHub> _logger;
+        private readonly ITokenAcquisition _tokenAcquisition;
+
+        public EmailManagementHub(IEmailManagementBackgroundService emailManagementService, ILogger<EmailManagementHub> logger, ITokenAcquisition tokenAcquisition)
+        {
+            _emailManagementService = emailManagementService;
+            _logger = logger;
+            _tokenAcquisition = tokenAcquisition;
+        }
         public async Task SendProgress(string message)
         {
             await Clients.All.SendAsync("ReceiveProgress", message);
@@ -27,6 +39,40 @@ namespace UnsubscribeEmail.Hubs
         public async Task SendError(string error)
         {
             await Clients.All.SendAsync("ReceiveError", error);
+        }
+
+        public async Task SendNotification(string message, string type)
+        {
+            await Clients.All.SendAsync("ReceiveNotification", new { message, type });
+        }
+
+        public async Task MarkEmailsAsRead(string senderEmail, int daysBack)
+        {
+            try
+            {
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Marking emails from {senderEmail} as read...", type = "info" });
+
+                var scopes = new[] { "https://graph.microsoft.com/Mail.ReadWrite" };
+                var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
+
+                var sinceDate = DateTime.UtcNow.AddDays(-daysBack);
+                
+                // Fetch emails from sender
+                var emails = await _emailManagementService.FetchEmailsAsync(daysBack, Context.ConnectionId, accessToken);
+                var senderEmails = emails.Where(e => e.SenderEmail.Equals(senderEmail, StringComparison.OrdinalIgnoreCase)).ToList();
+
+                _logger.LogInformation($"Found {senderEmails.Count} emails from {senderEmail} to mark as read");
+
+                // Mark emails as read
+                await _emailManagementService.MarkEmailsAsReadAsync(senderEmail, daysBack, accessToken);
+                
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully marked {senderEmails.Count} emails as read from {senderEmail}", type = "success" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error marking emails as read from {senderEmail}");
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Error marking emails as read: {ex.Message}", type = "error" });
+            }
         }
     }
 }

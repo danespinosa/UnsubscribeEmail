@@ -4,7 +4,6 @@
     ViewData["Title"] = "Read or Delete Emails";
 }
 
-<form method="post">
 <div class="container mt-5">
     <h1 class="mb-4">Email Management - Read or Delete</h1>
     
@@ -31,6 +30,10 @@
     </div>
     
     <div id="resultsSection">
+        <form id="loadSendersForm" method="post">
+            @Html.AntiForgeryToken()
+        </form>
+        
         <div id="initialState" class="text-center mb-4">
             <h5 class="mb-3">Select how far back to search</h5>
             <div class="btn-group mb-3" role="group" aria-label="Days selection">
@@ -87,10 +90,21 @@
         </div>
     </div>
 </div>
-</form>
 
 @section Scripts {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
+    <style>
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 9999;
+        }
+        .toast {
+            margin-bottom: 10px;
+            min-width: 300px;
+        }
+    </style>
     <script>
         let senderCount = 0;
 
@@ -119,10 +133,10 @@
                 <td><span class="badge bg-secondary" title="${escapeHtml(sender.recipientEmail || 'Unknown')}">${truncateText(sender.recipientEmail || 'Unknown', 24)}</span></td>
                 <td><span class="badge bg-info">${sender.emailCount}</span></td>
                 <td>
-                    <button class="btn btn-sm btn-success me-2" onclick="readEmails('${escapeHtml(sender.senderEmail)}')">
+                    <button type="button" class="btn btn-sm btn-success me-2" onclick="readEmails('${escapeHtml(sender.senderEmail)}')">
                         <i class="bi bi-envelope-open"></i> Read Emails
                     </button>
-                    <button class="btn btn-sm btn-danger" onclick="deleteEmails('${escapeHtml(sender.senderEmail)}')">
+                    <button type="button" class="btn btn-sm btn-danger" onclick="deleteEmails('${escapeHtml(sender.senderEmail)}')">
                         <i class="bi bi-trash"></i> Delete Emails
                     </button>
                 </td>
@@ -153,6 +167,10 @@
             document.getElementById('progressSection').style.display = 'none';
         });
 
+        connection.on("ReceiveNotification", function (data) {
+            showToast(data.message, data.type);
+        });
+
         connection.start().then(function () {
             console.log("SignalR connected");
         }).catch(function (err) {
@@ -177,6 +195,7 @@
                 
                 if (token) {
                     headers['RequestVerificationToken'] = token.value;
+                    headers['X-CSRF-TOKEN'] = token.value;
                 }
                 
                 const response = await fetch('?handler=StartProcessing', {
@@ -199,9 +218,22 @@
             }
         });
 
-        function readEmails(senderEmail) {
-            // TODO: Implement read emails functionality
-            alert('Read emails from: ' + senderEmail);
+        async function readEmails(senderEmail) {
+            if (!confirm(`Mark all emails from ${senderEmail} as read?`)) {
+                return;
+            }
+
+            try {
+                // Get the selected days back value from radio buttons
+                const selectedDays = document.querySelector('input[name="daysBack"]:checked');
+                const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
+                
+                // Call SignalR hub method directly
+                await connection.invoke("MarkEmailsAsRead", senderEmail, daysBack);
+                
+            } catch (error) {
+                showToast('Error marking emails as read: ' + error.message, 'error');
+            }
         }
 
         function deleteEmails(senderEmail) {
@@ -231,6 +263,36 @@
             if (!text) return '';
             if (text.length <= maxLength) return escapeHtml(text);
             return escapeHtml(text.substring(0, maxLength - 3) + '...');
+        }
+
+        function showToast(message, type = 'info') {
+            // Create toast container if it doesn't exist
+            let container = document.querySelector('.toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.className = 'toast-container';
+                document.body.appendChild(container);
+            }
+
+            // Create toast element
+            const toast = document.createElement('div');
+            toast.className = `alert alert-${type === 'success' ? 'success' : type === 'error' ? 'danger' : 'info'} alert-dismissible fade show toast`;
+            toast.setAttribute('role', 'alert');
+            
+            const icon = type === 'success' ? '✓' : type === 'error' ? '✗' : 'ℹ';
+            
+            toast.innerHTML = `
+                <strong>${icon}</strong> ${escapeHtml(message)}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            `;
+            
+            container.appendChild(toast);
+
+            // Auto-remove after 5 seconds
+            setTimeout(() => {
+                toast.classList.remove('show');
+                setTimeout(() => toast.remove(), 150);
+            }, 5000);
         }
     </script>
 }

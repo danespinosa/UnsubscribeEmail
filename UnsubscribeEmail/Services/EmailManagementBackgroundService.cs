@@ -56,7 +56,7 @@ namespace UnsubscribeEmail.Services
             }
         }
 
-        private async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, string connectionId, string accessToken)
+        public async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, string connectionId, string accessToken)
         {
             var emails = new List<EmailMessage>();
             var httpClient = _httpClientFactory.CreateClient("GraphAPI");
@@ -142,7 +142,98 @@ namespace UnsubscribeEmail.Services
             return grouped;
         }
 
-        private class EmailMessage
+        public async Task<EmailActionResult> MarkEmailsAsReadAsync(string senderEmail, int daysBack, string accessToken)
+        {
+            try
+            {
+                var httpClient = _httpClientFactory.CreateClient("GraphAPI");
+                httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                // Get all emails from this sender within the date range
+                var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
+                var filter = $"from/emailAddress/address eq '{senderEmail}' and receivedDateTime ge {startDate}";
+                var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,isRead&$top=999";
+
+                var emailIds = new List<string>();
+                var unreadCount = 0;
+
+                while (!string.IsNullOrEmpty(url))
+                {
+                    var response = await httpClient.GetAsync(url);
+                    response.EnsureSuccessStatusCode();
+
+                    var content = await response.Content.ReadAsStringAsync();
+                    var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+                    if (data.TryGetProperty("value", out var messagesArray))
+                    {
+                        foreach (var message in messagesArray.EnumerateArray())
+                        {
+                            var id = message.GetProperty("id").GetString();
+                            var isRead = message.TryGetProperty("isRead", out var isReadProp) && isReadProp.GetBoolean();
+                            
+                            if (!isRead && !string.IsNullOrEmpty(id))
+                            {
+                                emailIds.Add(id);
+                                unreadCount++;
+                            }
+                        }
+                    }
+
+                    // Check for next page
+                    url = data.TryGetProperty("@odata.nextLink", out var nextLink)
+                        ? nextLink.GetString() ?? ""
+                        : "";
+                }
+
+                // Mark each email as read using PATCH
+                var markedCount = 0;
+                foreach (var emailId in emailIds)
+                {
+                    try
+                    {
+                        var patchUrl = $"https://graph.microsoft.com/v1.0/me/messages/{emailId}";
+                        var patchContent = new StringContent(
+                            JsonSerializer.Serialize(new { isRead = true }),
+                            System.Text.Encoding.UTF8,
+                            "application/json");
+
+                        var patchResponse = await httpClient.PatchAsync(patchUrl, patchContent);
+                        if (patchResponse.IsSuccessStatusCode)
+                        {
+                            markedCount++;
+                        }
+                        else
+                        {
+                            _logger.LogWarning($"Failed to mark email {emailId} as read: {patchResponse.StatusCode}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, $"Error marking email {emailId} as read");
+                    }
+                }
+
+                return new EmailActionResult
+                {
+                    Success = true,
+                    Message = $"Marked {markedCount} of {unreadCount} unread emails as read from {senderEmail}",
+                    Count = markedCount
+                };
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error marking emails as read from {senderEmail}");
+                return new EmailActionResult
+                {
+                    Success = false,
+                    Message = $"Error: {ex.Message}",
+                    Count = 0
+                };
+            }
+        }
+
+        public class EmailMessage
         {
             public string Id { get; set; } = string.Empty;
             public string Subject { get; set; } = string.Empty;

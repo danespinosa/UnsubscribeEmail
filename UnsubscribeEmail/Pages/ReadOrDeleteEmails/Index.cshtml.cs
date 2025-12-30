@@ -33,6 +33,7 @@ public class IndexModel : PageModel
         // Page loads empty, processing starts via JavaScript
     }
 
+    [IgnoreAntiforgeryToken]
     public async Task<IActionResult> OnPostStartProcessingAsync([FromBody] ProcessingRequest request)
     {
         try
