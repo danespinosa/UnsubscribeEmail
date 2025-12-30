@@ -70,6 +70,20 @@ namespace UnsubscribeEmail.Services
             return null;
         }
 
+        private async Task<string?> GetJunkEmailFolderIdAsync(HttpClient httpClient)
+        {
+            var foldersResponse = await httpClient.GetAsync("https://graph.microsoft.com/v1.0/me/mailFolders?$filter=displayName eq 'Junk Email'&$select=id");
+            foldersResponse.EnsureSuccessStatusCode();
+            var foldersContent = await foldersResponse.Content.ReadAsStringAsync();
+            var foldersData = JsonSerializer.Deserialize<JsonElement>(foldersContent);
+            
+            if (foldersData.TryGetProperty("value", out var folderValue) && folderValue.GetArrayLength() > 0)
+            {
+                return folderValue[0].GetProperty("id").GetString();
+            }
+            return null;
+        }
+
         private async Task<string> GetUserEmailAsync(HttpClient httpClient)
         {
             var userResponse = await httpClient.GetAsync("https://graph.microsoft.com/v1.0/me?$select=mail,userPrincipalName");
@@ -91,6 +105,19 @@ namespace UnsubscribeEmail.Services
             return "";
         }
 
+        private bool IsEmailInExcludedFolder(JsonElement message, string? deletedItemsFolderId, string? junkEmailFolderId)
+        {
+            if (!message.TryGetProperty("parentFolderId", out var parentFolderId))
+            {
+                return false;
+            }
+
+            var parentFolder = parentFolderId.GetString();
+            
+            return (!string.IsNullOrEmpty(deletedItemsFolderId) && parentFolder == deletedItemsFolderId) ||
+                   (!string.IsNullOrEmpty(junkEmailFolderId) && parentFolder == junkEmailFolderId);
+        }
+
         private HttpClient CreateAuthenticatedClient(string accessToken)
         {
             var httpClient = _httpClientFactory.CreateClient("GraphAPI");
@@ -103,9 +130,10 @@ namespace UnsubscribeEmail.Services
             var emails = new List<EmailMessage>();
             var httpClient = CreateAuthenticatedClient(accessToken);
 
-            // First, get the Deleted Items folder ID
+            // First, get the Deleted Items and Junk Email folder IDs
             await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveProgress", "Getting folder information...");
             var deletedItemsFolderId = await GetDeletedItemsFolderIdAsync(httpClient);
+            var junkEmailFolderId = await GetJunkEmailFolderIdAsync(httpClient);
 
             var startDate = DateTime.UtcNow.AddDays(-daysBack).ToString("yyyy-MM-ddTHH:mm:ssZ");
             var filter = $"receivedDateTime ge {startDate} and isDraft eq false";
@@ -128,14 +156,10 @@ namespace UnsubscribeEmail.Services
                 {
                     foreach (var message in messagesArray.EnumerateArray())
                     {
-                        // Skip emails in Deleted Items folder
-                        if (message.TryGetProperty("parentFolderId", out var parentFolderId))
+                        // Skip emails in Deleted Items or Junk Email folders
+                        if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
                         {
-                            var parentFolder = parentFolderId.GetString();
-                            if (!string.IsNullOrEmpty(deletedItemsFolderId) && parentFolder == deletedItemsFolderId)
-                            {
-                                continue;
-                            }
+                            continue;
                         }
 
                         var email = new EmailMessage
@@ -177,7 +201,7 @@ namespace UnsubscribeEmail.Services
                     : "";
             }
 
-            await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveProgress", $"Fetched {emails.Count} emails total (excluding deleted items)");
+            await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveProgress", $"Fetched {emails.Count} emails total (excluding deleted items and junk)");
 
             return emails;
         }
@@ -207,6 +231,7 @@ namespace UnsubscribeEmail.Services
             {
                 var httpClient = CreateAuthenticatedClient(accessToken);
                 var deletedItemsFolderId = await GetDeletedItemsFolderIdAsync(httpClient);
+                var junkEmailFolderId = await GetJunkEmailFolderIdAsync(httpClient);
 
                 // Get the current user's email address
                 var userEmail = await GetUserEmailAsync(httpClient);
@@ -243,14 +268,10 @@ namespace UnsubscribeEmail.Services
                     {
                         foreach (var message in messagesArray.EnumerateArray())
                         {
-                            // Skip emails in Deleted Items folder
-                            if (message.TryGetProperty("parentFolderId", out var parentFolderId))
+                            // Skip emails in Deleted Items or Junk Email folders
+                            if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
                             {
-                                var parentFolder = parentFolderId.GetString();
-                                if (!string.IsNullOrEmpty(deletedItemsFolderId) && parentFolder == deletedItemsFolderId)
-                                {
-                                    continue;
-                                }
+                                continue;
                             }
 
                             // If querying own emails, filter by sender in C#
@@ -342,6 +363,7 @@ namespace UnsubscribeEmail.Services
             {
                 var httpClient = CreateAuthenticatedClient(accessToken);
                 var deletedItemsFolderId = await GetDeletedItemsFolderIdAsync(httpClient);
+                var junkEmailFolderId = await GetJunkEmailFolderIdAsync(httpClient);
 
                 // Get the current user's email address
                 var userEmail = await GetUserEmailAsync(httpClient);
@@ -377,14 +399,10 @@ namespace UnsubscribeEmail.Services
                     {
                         foreach (var message in messagesArray.EnumerateArray())
                         {
-                            // Skip emails already in Deleted Items folder
-                            if (message.TryGetProperty("parentFolderId", out var parentFolderId))
+                            // Skip emails already in Deleted Items or Junk Email folders
+                            if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
                             {
-                                var parentFolder = parentFolderId.GetString();
-                                if (!string.IsNullOrEmpty(deletedItemsFolderId) && parentFolder == deletedItemsFolderId)
-                                {
-                                    continue;
-                                }
+                                continue;
                             }
 
                             // If querying own emails, filter by sender in C#
