@@ -89,5 +89,55 @@ namespace UnsubscribeEmail.Hubs
                 await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Error deleting emails: {ex.Message}", type = "error" });
             }
         }
+
+        public async Task MarkManyEmailsAsRead(string[] senderEmails, int daysBack)
+        {
+            try
+            {
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Marking emails from {senderEmails.Length} sender(s) as read...", type = "info" });
+
+                var scopes = new[] { "https://graph.microsoft.com/Mail.ReadWrite" };
+                var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
+
+                var totalMarked = 0;
+                foreach (var senderEmail in senderEmails)
+                {
+                    var result = await _emailManagementService.MarkEmailsAsReadAsync(senderEmail, daysBack, accessToken);
+                    totalMarked += result.Count;
+                }
+
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully marked {totalMarked} emails as read from {senderEmails.Length} sender(s)", type = "success" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error marking emails as read from multiple senders");
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Error marking emails as read: {ex.Message}", type = "error" });
+            }
+        }
+
+        public async Task DeleteManyEmails(string[] senderEmails, int daysBack)
+        {
+            try
+            {
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Deleting emails from {senderEmails.Length} sender(s)...", type = "info" });
+
+                var scopes = new[] { "https://graph.microsoft.com/Mail.ReadWrite" };
+                var accessToken = await _tokenAcquisition.GetAccessTokenForUserAsync(scopes);
+
+                var totalDeleted = 0;
+                foreach (var senderEmail in senderEmails)
+                {
+                    var result = await _emailManagementService.DeleteEmailsAsync(senderEmail, daysBack, accessToken);
+                    totalDeleted += result.Count;
+                }
+
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully deleted {totalDeleted} emails from {senderEmails.Length} sender(s)", type = "success" });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error deleting emails from multiple senders");
+                await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Error deleting emails: {ex.Message}", type = "error" });
+            }
+        }
     }
 }

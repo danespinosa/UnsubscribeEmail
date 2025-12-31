@@ -73,10 +73,22 @@
                 </div>
             </div>
             
+            <div class="mb-3">
+                <button type="button" id="readManyButton" class="btn btn-success me-2" onclick="readManyEmails()" disabled>
+                    <i class="bi bi-envelope-open"></i> Read Many (<span id="readManyCount">0</span>)
+                </button>
+                <button type="button" id="deleteManyButton" class="btn btn-danger" onclick="deleteManyEmails()" disabled>
+                    <i class="bi bi-trash"></i> Delete Many (<span id="deleteManyCount">0</span>)
+                </button>
+            </div>
+            
             <div class="table-responsive">
                 <table class="table table-striped table-hover">
                     <thead class="table-dark">
                         <tr>
+                            <th scope="col">
+                                <input type="checkbox" id="selectAll" onchange="toggleSelectAll()">
+                            </th>
                             <th scope="col">#</th>
                             <th scope="col">Sender Email</th>
                             <th scope="col">Recipient Email</th>
@@ -138,8 +150,10 @@
             
             // Add data attribute for unread count to enable filtering
             row.setAttribute('data-unread-count', sender.unreadCount || 0);
+            row.setAttribute('data-sender-email', sender.senderEmail);
             
             row.innerHTML = `
+                <td><input type="checkbox" class="sender-checkbox" data-sender-email="${escapeHtml(sender.senderEmail)}" onchange="updateBulkActionButtons()"></td>
                 <th scope="row">${senderCount}</th>
                 <td>${escapeHtml(sender.senderEmail)}</td>
                 <td><span class="badge bg-secondary" title="${escapeHtml(sender.recipientEmail || 'Unknown')}">${truncateText(sender.recipientEmail || 'Unknown', 24)}</span></td>
@@ -341,6 +355,89 @@
             
             // Update total count to show visible senders
             document.getElementById('totalSenders').textContent = visibleCount;
+        }
+
+        function toggleSelectAll() {
+            const selectAll = document.getElementById('selectAll');
+            const checkboxes = document.querySelectorAll('.sender-checkbox');
+            const visibleCheckboxes = Array.from(checkboxes).filter(cb => {
+                const row = cb.closest('tr');
+                return row.style.display !== 'none';
+            });
+            
+            visibleCheckboxes.forEach(checkbox => {
+                checkbox.checked = selectAll.checked;
+            });
+            
+            updateBulkActionButtons();
+        }
+
+        function updateBulkActionButtons() {
+            const checkboxes = document.querySelectorAll('.sender-checkbox:checked');
+            const count = checkboxes.length;
+            
+            document.getElementById('readManyCount').textContent = count;
+            document.getElementById('deleteManyCount').textContent = count;
+            
+            document.getElementById('readManyButton').disabled = count === 0;
+            document.getElementById('deleteManyButton').disabled = count === 0;
+            
+            // Update select all checkbox state
+            const allCheckboxes = document.querySelectorAll('.sender-checkbox');
+            const visibleCheckboxes = Array.from(allCheckboxes).filter(cb => {
+                const row = cb.closest('tr');
+                return row.style.display !== 'none';
+            });
+            const allVisibleChecked = visibleCheckboxes.length > 0 && visibleCheckboxes.every(cb => cb.checked);
+            document.getElementById('selectAll').checked = allVisibleChecked;
+        }
+
+        async function readManyEmails() {
+            const checkboxes = document.querySelectorAll('.sender-checkbox:checked');
+            const senders = Array.from(checkboxes).map(cb => cb.getAttribute('data-sender-email'));
+            
+            if (senders.length === 0) {
+                showToast('No senders selected', 'error');
+                return;
+            }
+
+            if (!confirm(`Mark all emails from ${senders.length} sender(s) as read?`)) {
+                return;
+            }
+
+            try {
+                const selectedDays = document.querySelector('input[name="daysBack"]:checked');
+                const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
+                
+                await connection.invoke("MarkManyEmailsAsRead", senders, daysBack);
+                
+            } catch (error) {
+                showToast('Error marking emails as read: ' + error.message, 'error');
+            }
+        }
+
+        async function deleteManyEmails() {
+            const checkboxes = document.querySelectorAll('.sender-checkbox:checked');
+            const senders = Array.from(checkboxes).map(cb => cb.getAttribute('data-sender-email'));
+            
+            if (senders.length === 0) {
+                showToast('No senders selected', 'error');
+                return;
+            }
+
+            if (!confirm(`Are you sure you want to delete all emails from ${senders.length} sender(s)? This action cannot be undone.`)) {
+                return;
+            }
+
+            try {
+                const selectedDays = document.querySelector('input[name="daysBack"]:checked');
+                const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
+                
+                await connection.invoke("DeleteManyEmails", senders, daysBack);
+                
+            } catch (error) {
+                showToast('Error deleting emails: ' + error.message, 'error');
+            }
         }
     </script>
 }
