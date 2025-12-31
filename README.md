@@ -5,11 +5,14 @@ A web application that connects to your Microsoft email account to automatically
 ## Features
 
 - 🔐 **Secure Microsoft Authentication** - Uses OAuth 2.0 to securely access your emails
-- 📧 **Automatic Email Scanning** - Fetches emails from the current year and processes them in real-time
+- 📧 **Automatic Email Scanning** - Fetches emails from a configurable date range and processes them in real-time
 - 🤖 **Smart Link Extraction** - Uses regex patterns first, with AI (Phi-3) model fallback for complex cases
 - ⚡ **Real-time Progress Updates** - SignalR-powered live updates as emails are processed
 - 🎯 **Sender Grouping** - Organizes results by sender email address
 - 📊 **Summary Statistics** - Shows how many senders have unsubscribe links
+- ✉️ **Email Management** - Mark all emails from a sender as read or delete them
+- 📈 **Unread Count Tracking** - See how many unread emails you have from each sender
+- 🗑️ **Bulk Actions** - Read or delete all emails from specific senders with one click
 
 ## Prerequisites
 
@@ -49,6 +52,7 @@ cd UnsubscribeEmail
 4. Add the following permissions:
    - `User.Read`
    - `Mail.Read`
+   - `Mail.ReadWrite` (required for marking emails as read and deleting emails)
 5. Click **Add permissions**
 6. (Optional) Click **Grant admin consent** if required by your organization
 
@@ -170,13 +174,32 @@ The application will start at `https://localhost:7074` (or the configured port).
 
 ## Usage
 
+### Unsubscribe Links Page
+
 1. **Navigate to the app** in your browser
 2. **Sign in** with your Microsoft account
 3. **Go to Unsubscribe Links** page
-4. **Click "Start Processing Emails"**
-5. **Watch real-time progress** as emails are fetched and processed
-6. **Review results** - each sender is listed with their unsubscribe link (if found)
-7. **Click "Unsubscribe"** button to visit the unsubscribe page for any sender
+4. **Select date range** - Choose how many days back to scan (7, 30, 90, or 365 days)
+5. **Click "Start Processing Emails"**
+6. **Watch real-time progress** as emails are fetched and processed
+7. **Review results** - each sender is listed with their unsubscribe link (if found)
+8. **Click "Unsubscribe"** button to visit the unsubscribe page for any sender
+
+### Read or Delete Emails Page
+
+1. **Navigate to "Read or Delete Emails"** page
+2. **Select date range** - Choose how many days back to scan
+3. **Click "Load Senders"** to fetch and group all emails by sender
+4. **Review the list** showing:
+   - Sender email address
+   - Recipient email (your email)
+   - Total email count from that sender
+   - Unread email count from that sender
+5. **Filter by unread** - Toggle "Show only senders with unread emails" to focus on unread messages
+6. **Bulk actions:**
+   - **Read Emails** - Mark all emails from a sender as read
+   - **Delete Emails** - Permanently delete all emails from a sender
+7. **Watch real-time notifications** as actions complete
 
 ## How It Works
 
@@ -200,16 +223,20 @@ The application will start at `https://localhost:7074` (or the configured port).
 - Shows email fetching progress (page by page from Graph API)
 - Updates as each sender is processed
 - Displays final summary with statistics
+- Real-time notifications for read/delete operations
+- Progress indicators for bulk actions
 
 ## Architecture
 
 - **ASP.NET Core 10** - Web framework
 - **Razor Pages** - UI rendering
-- **SignalR** - Real-time communication
-- **Microsoft Graph API** - Email access via REST API
-- **Microsoft Identity Platform** - Authentication
+- **SignalR** - Real-time communication for progress updates and notifications
+- **Microsoft Graph API** - Email access via REST API for reading, updating, and deleting emails
+- **Microsoft Identity Platform** - OAuth 2.0 authentication
 - **Phi-3 ONNX Model** - AI-powered link extraction
 - **Regex Patterns** - Fast pattern matching
+- **Background Services** - Email processing and management tasks
+- **Toast Notifications** - User-friendly action feedback
 
 ## Testing
 
@@ -250,6 +277,12 @@ The test suite includes:
 - Ensure all model files were downloaded via Git LFS
 - Check file permissions on the model directory
 - The app will still work using regex-only mode
+
+### Emails not being deleted/marked as read
+- Ensure you've granted the `Mail.ReadWrite` permission
+- Check that you've granted admin consent if required
+- Verify the access token includes the required scopes
+- Emails in Deleted Items and Junk folders are automatically excluded from processing
 
 ## License
 
