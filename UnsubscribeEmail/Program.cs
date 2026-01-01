@@ -56,6 +56,9 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.All;
     // specify known networks is necessary from version 8 https://learn.microsoft.com/en-us/dotnet/core/compatibility/aspnet-core/8.0/forwarded-headers-unknown-proxies
+    // This makes unnecessary the ASPNETCORE_FORWARDEDHEADERS_ENABLED environment variable override.
+    // https://github.com/dotnet/aspnetcore/blob/main/src/DefaultBuilder/src/ForwardedHeadersOptionsSetup.cs
+    // https://github.com/dotnet/aspnetcore/blob/main/src/DefaultBuilder/src/ForwardedHeadersStartupFilter.cs
     var knownNetwork = builder.Configuration["KnownNetwork"];
     var prefixLength = builder.Configuration["KnownNetworkPrefixLength"];
     if (!string.IsNullOrEmpty(knownNetwork))
