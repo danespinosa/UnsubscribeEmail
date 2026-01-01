@@ -23,11 +23,11 @@ public interface IUnsubscribeLinkExtractor
 /// </remarks>
 internal class AnchorCandidate
 {
-    public string Href { get; set; } = string.Empty;
-    public string AnchorText { get; set; } = string.Empty;
-    public string ContextBefore { get; set; } = string.Empty;
-    public string ContextAfter { get; set; } = string.Empty;
-    public int Position { get; set; }
+    public required string Href { get; init; }
+    public required string AnchorText { get; init; }
+    public required string ContextBefore { get; init; }
+    public required string ContextAfter { get; init; }
+    public required int Position { get; init; }
 }
 
 /// <summary>
@@ -85,6 +85,13 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         "update preferences",
         "no longer wish to receive"
     };
+
+    // Pre-computed keyword variations for URL matching (includes no-space and hyphenated versions)
+    // This avoids repeated string operations in loops
+    private static readonly string[] UnsubscribeKeywordVariations = UnsubscribeKeywords
+        .SelectMany(k => new[] { k, k.Replace(" ", ""), k.Replace(" ", "-") })
+        .Distinct()
+        .ToArray();
 
     // Common action phrases in anchor text (used across multiple methods)
     private static readonly string[] ActionPhrases = 
@@ -622,16 +629,10 @@ Email HTML to parse:
             }
         }
         
-        // Priority 2: Href contains unsubscribe-related keywords
-        // Pre-compute keyword variations for better performance
-        var keywordVariations = UnsubscribeKeywords
-            .SelectMany(k => new[] { k, k.Replace(" ", ""), k.Replace(" ", "-") })
-            .Distinct()
-            .ToArray();
-        
+        // Priority 2: Href contains unsubscribe-related keywords (using pre-computed variations)
         foreach (var candidate in candidates)
         {
-            foreach (var keywordVariation in keywordVariations)
+            foreach (var keywordVariation in UnsubscribeKeywordVariations)
             {
                 if (candidate.Href.Contains(keywordVariation, StringComparison.OrdinalIgnoreCase))
                 {
@@ -655,13 +656,13 @@ Email HTML to parse:
         }
         
         // Priority 4: Context (before or after) contains unsubscribe-related keywords
+        // Check each context separately to avoid unnecessary string allocations
         foreach (var candidate in candidates)
         {
-            var combinedContext = $"{candidate.ContextBefore} {candidate.ContextAfter}";
-            
             foreach (var keyword in UnsubscribeKeywords)
             {
-                if (combinedContext.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                if (candidate.ContextBefore.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                    candidate.ContextAfter.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
                     // Additional check: anchor text should be something actionable
                     var isActionPhrase = ActionPhrases.Any(phrase => 
