@@ -275,4 +275,223 @@ public class Phi3UnsubscribeLinkExtractorTests
         Assert.NotNull(result);
         Assert.Contains("example.com", result);
     }
+
+    // ===== Tests for Anchor-Based Heuristic Detection =====
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithUnsubscribeInAnchorText_ReturnsLink()
+    {
+        // Test case where regex fails but anchor text contains "unsubscribe"
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>Thank you for subscribing to our newsletter.</p>
+                         <a href=""https://newsletter.example.com/remove?id=abc123"">Unsubscribe from this list</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Equal("https://newsletter.example.com/remove?id=abc123", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithUnsubscribeInHref_ReturnsLink()
+    {
+        // Test case where only href contains unsubscribe keyword
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>Manage your email settings.</p>
+                         <a href=""https://example.com/unsubscribe?user=123"">Click here</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("user=123", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithOptOutInHref_ReturnsLink()
+    {
+        // Test case where href contains "opt-out"
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>Email notification settings.</p>
+                         <a href=""https://example.com/opt-out?token=xyz"">Update settings</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Contains("opt-out", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithManagePreferencesInHref_ReturnsLink()
+    {
+        // Test case where href contains "preferences"
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <a href=""https://mail.example.com/managepreferences?id=456"">Settings</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Contains("preferences", result, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithContextBeforeAnchor_ReturnsLink()
+    {
+        // Test case where context before anchor contains unsubscribe keyword
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>If you no longer wish to receive these emails, please unsubscribe by visiting 
+                         <a href=""https://example.com/stop-emails?id=789"">this link</a>.</p>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Contains("stop-emails", result);
+        Assert.Equal("https://example.com/stop-emails?id=789", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithContextAfterAnchor_ReturnsLink()
+    {
+        // Test case where context after anchor contains opt-out keyword
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>Click <a href=""https://example.com/leave?user=test"">here</a> to opt out of future communications.</p>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Equal("https://example.com/leave?user=test", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_WithEmailPreferencesInContext_ReturnsLink()
+    {
+        // Test case where context contains "email preferences"
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>To update your email preferences, <a href=""https://example.com/settings?ref=email"">click here</a>.</p>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Equal("https://example.com/settings?ref=email", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_MultipleAnchors_PrefersUnsubscribeInText()
+    {
+        // Test case with multiple anchors where regex won't match but anchor heuristic will
+        // Using anchor text that doesn't contain regex keywords
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <a href=""https://example.com/settings?id=1"">Click to manage</a> | 
+                         <a href=""https://example.com/remove?id=2"">Unsubscribe</a> | 
+                         <a href=""https://example.com/contact"">Contact Us</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        // Should select the "Unsubscribe" link (priority 1 in anchor heuristics)
+        Assert.Equal("https://example.com/remove?id=2", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_MultipleAnchors_PrefersUnsubscribeInHref()
+    {
+        // Test case with multiple anchors - should prefer "unsubscribe" in href when not in text
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <a href=""https://example.com/settings"">Settings</a> | 
+                         <a href=""https://example.com/unsubscribe?id=xyz"">Click here</a> | 
+                         <a href=""https://example.com/help"">Help</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        // Should select the link with "unsubscribe" in href (priority 2)
+        Assert.Equal("https://example.com/unsubscribe?id=xyz", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_MultipleAnchors_SelectsFirstDocumentOrder()
+    {
+        // Test case with multiple preference anchors - should select first in document order
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <a href=""https://example.com/preferences1"">Manage Preferences</a>
+                         <a href=""https://example.com/preferences2"">Email Preferences</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        // Should select first matching anchor
+        Assert.Equal("https://example.com/preferences1", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_NoMatchingAnchors_ReturnsNull()
+    {
+        // Test case where anchors exist but none match unsubscribe criteria
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <a href=""https://example.com/about"">About Us</a>
+                         <a href=""https://example.com/products"">Products</a>
+                         <a href=""https://example.com/contact"">Contact</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        // Should return null since no unsubscribe-related links found
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_IgnoresNonHttpAnchors()
+    {
+        // Test case where some anchors have non-HTTP hrefs (mailto, javascript, etc.)
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <a href=""mailto:support@example.com"">Email Us</a>
+                         <a href=""javascript:void(0)"">Action</a>
+                         <a href=""https://example.com/unsubscribe"">Unsubscribe</a>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        // Should only consider HTTP/HTTPS links
+        Assert.Equal("https://example.com/unsubscribe", result);
+    }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_AnchorHeuristic_HandlesLongContextWindows()
+    {
+        // Test case with long text to verify 100-char context window
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        var emailBody = @"<html><body>
+                         <p>" + new string('x', 150) + @"</p>
+                         <p>To unsubscribe from our mailing list, please " + new string('y', 80) + @" 
+                         <a href=""https://example.com/leave"">click here</a> to complete the process.</p>
+                         </body></html>";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        Assert.Equal("https://example.com/leave", result);
+    }
 }

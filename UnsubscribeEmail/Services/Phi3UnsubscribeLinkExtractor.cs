@@ -8,6 +8,51 @@ public interface IUnsubscribeLinkExtractor
     Task<string?> ExtractUnsubscribeLinkAsync(string emailBody);
 }
 
+/// <summary>
+/// Represents an anchor tag candidate with surrounding context for heuristic evaluation.
+/// </summary>
+/// <remarks>
+/// This class stores information about an anchor tag found in the email body, including:
+/// - The href URL
+/// - The visible anchor text
+/// - Context window (100 characters before and after the anchor)
+/// - Position in the original document
+/// 
+/// This data is used by the anchor-based heuristic detection to identify unsubscribe links
+/// when regex-based extraction fails.
+/// </remarks>
+internal class AnchorCandidate
+{
+    public required string Href { get; init; }
+    public required string AnchorText { get; init; }
+    public required string ContextBefore { get; init; }
+    public required string ContextAfter { get; init; }
+    public required int Position { get; init; }
+}
+
+/// <summary>
+/// Extracts unsubscribe links from email content using a three-stage detection approach:
+/// anchor-based heuristics, regex patterns, and AI-powered analysis.
+/// </summary>
+/// <remarks>
+/// This extractor implements a progressive enhancement strategy for finding unsubscribe links:
+/// 
+/// 1. **Anchor-based heuristics** (Stage 1): Extracts all anchor tags with 100-character
+///    context windows and evaluates them using keyword-based heuristics. Provides comprehensive coverage
+///    by analyzing anchors with surrounding context.
+/// 
+/// 2. **Regex-based extraction** (Stage 2): If heuristics fail, uses fast pattern matching for common 
+///    unsubscribe link patterns. Catches patterns that may be missed by the heuristic approach.
+/// 
+/// 3. **Phi-3 AI model** (Stage 3): As a final fallback, uses Microsoft's Phi-3 language model to
+///    intelligently extract links from complex or obfuscated HTML structures.
+/// 
+/// The anchor-based heuristic stage (Stage 1) provides enhanced detection accuracy by:
+/// - Collecting all anchors with surrounding context for better understanding
+/// - Using deterministic keyword-based evaluation
+/// - Implementing priority-based selection when multiple candidates exist
+/// - Providing comprehensive detection before falling back to simpler patterns
+/// </remarks>
 public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 {
     private readonly ILogger<Phi3UnsubscribeLinkExtractor> _logger;
@@ -16,6 +61,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     private Tokenizer? _tokenizer;
     private bool _modelInitialized = false;
 
+    // Regex patterns for anchor tag and URL matching
     private static readonly Regex AnchorTagRegex = new(
         @"<a[^>]+href=[""']([^""']+)[""'][^>]*>(.*?)</a>",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
@@ -27,6 +73,46 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     private static readonly Regex UrlRegex = new(
         @"https?://[^\s<>""']+",
         RegexOptions.Compiled);
+
+    // Keywords for unsubscribe link detection (used across multiple methods)
+    private static readonly string[] UnsubscribeKeywords = 
+    {
+        "unsubscribe",
+        "opt out",
+        "opt-out",
+        "optout",  // Added for consistency with regex patterns
+        "manage preferences",
+        "email preferences",
+        "update preferences",
+        "no longer wish to receive"
+    };
+
+    // Pre-computed keyword variations for URL matching (includes no-space and hyphenated versions)
+    // This avoids repeated string operations in loops
+    private static readonly string[] UnsubscribeKeywordVariations = UnsubscribeKeywords
+        .Where(k => !k.Contains(" "))  // Keep single-word keywords as-is
+        .Concat(UnsubscribeKeywords
+            .Where(k => k.Contains(" "))
+            .SelectMany(k => new[] 
+            { 
+                k.Replace(" ", ""),      // "opt out" -> "optout"
+                k.Replace(" ", "-"),     // "opt out" -> "opt-out"
+                k                        // Keep original for matching
+            }))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
+        .ToArray();
+
+    // Common action phrases in anchor text (used across multiple methods)
+    private static readonly string[] ActionPhrases = 
+    {
+        "click here",
+        "here",
+        "click",
+        "tap here",
+        "this link",
+        "follow this link",
+        "tap"
+    };
 
     private static readonly Regex[] UnsubscribeLinkPatterns = 
     {
@@ -79,10 +165,50 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         await Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Extracts unsubscribe links from email body using a three-stage detection approach.
+    /// </summary>
+    /// <param name="emailBody">The raw HTML or text content of the email.</param>
+    /// <returns>
+    /// The unsubscribe URL if found, or null if no unsubscribe link could be detected.
+    /// </returns>
+    /// <remarks>
+    /// This method uses a three-stage detection strategy:
+    /// 
+    /// 1. **Anchor-based heuristics** (comprehensive): Extracts all anchor 
+    ///    tags with surrounding context (100 chars before/after) and evaluates them using 
+    ///    keyword-based heuristics. Selection priority:
+    ///    - Anchor text contains "unsubscribe" (highest priority)
+    ///    - Href contains unsubscribe-related keywords
+    ///    - Anchor text contains other keywords (opt-out, preferences, etc.)
+    ///    - Surrounding context contains keywords with actionable anchor text
+    /// 
+    /// 2. **Regex-based extraction** (fallback): If heuristics fail, searches for common unsubscribe patterns 
+    ///    including anchor tags with keywords like "unsubscribe", "opt-out", "preferences" 
+    ///    in the text or href attributes.
+    /// 
+    /// 3. **Phi-3 AI model** (final fallback): If both heuristics and regex fail, uses the 
+    ///    Phi-3 language model for intelligent extraction from complex HTML structures.
+    /// 
+    /// All URLs are validated before returning to ensure they are well-formed.
+    /// </remarks>
     public async Task<string?> ExtractUnsubscribeLinkAsync(string emailBody)
     {
-        // Step 1: Try regex-based extraction first (fast and efficient)
-        _logger.LogInformation("Attempting regex-based extraction...");
+        // Step 1: Try anchor-based heuristics first (comprehensive detection)
+        _logger.LogInformation("Attempting anchor-based heuristics...");
+        var anchorLink = ExtractUnsubscribeLinkWithAnchorHeuristics(emailBody);
+        
+        if (!string.IsNullOrEmpty(anchorLink) && IsValidUrl(anchorLink))
+        {
+            _logger.LogInformation($"Anchor-based heuristic extraction successful: {anchorLink}");
+            return anchorLink;
+        }
+        else
+        {
+            _logger.LogInformation("Anchor-based heuristic extraction failed, attempting regex-based extraction...");
+        }
+
+        // Step 2: Try regex-based extraction (fallback for patterns not caught by heuristics)
         var regexLink = ExtractUnsubscribeLinkFallback(emailBody);
         
         if (!string.IsNullOrEmpty(regexLink))
@@ -103,7 +229,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             _logger.LogInformation("Regex extraction failed, falling back to Phi3 model...");
         }
 
-        // Step 2: Fallback to Phi3 model if regex didn't find anything or URL is malformed
+        // Step 3: Fallback to Phi3 model if regex and anchor heuristics didn't find anything
         await InitializeModelAsync();
 
         // If model is not available, return the regex result even if malformed (better than nothing)
@@ -211,12 +337,11 @@ Email HTML to parse:
     private List<string> ExtractMultipleUnsubscribeContexts(string emailBody)
     {
         var contexts = new List<string>();
-        var keywords = new[] { "unsubscribe", "opt-out", "opt out", "optout", "manage preferences", "email preferences", "no longer wish to receive" };
         
         // Find all occurrences of keywords and extract contexts around them
         var keywordPositions = new List<(int position, string keyword)>();
         
-        foreach (var keyword in keywords)
+        foreach (var keyword in UnsubscribeKeywords)
         {
             var index = 0;
             while ((index = emailBody.IndexOf(keyword, index, StringComparison.OrdinalIgnoreCase)) != -1)
@@ -308,12 +433,11 @@ Email HTML to parse:
     private string? ExtractUnsubscribeContext(string emailBody)
     {
         // Search for multiple keywords related to unsubscribing
-        var keywords = new[] { "unsubscribe", "opt-out", "optout", "preferences" };
         int bestIndex = -1;
         string? foundKeyword = null;
         
         // Find the first occurrence of any keyword
-        foreach (var keyword in keywords)
+        foreach (var keyword in UnsubscribeKeywords)
         {
             var index = emailBody.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
             if (index != -1 && (bestIndex == -1 || index < bestIndex))
@@ -399,10 +523,8 @@ Email HTML to parse:
                 var href = nearbyAnchor.Groups[1].Value;
                 var anchorText = nearbyAnchor.Groups[2].Value.Trim().ToLower();
                 
-                // Look for common action phrases like "click here", "here", etc.
-                var actionPhrases = new[] { "click here", "here", "click", "tap here", "this link", "follow this link" };
-                
-                if (actionPhrases.Any(phrase => anchorText.Contains(phrase)))
+                // Look for common action phrases
+                if (ActionPhrases.Any(phrase => anchorText.Contains(phrase)))
                 {
                     if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
                         href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -427,6 +549,145 @@ Email HTML to parse:
             }
         }
 
+        return null;
+    }
+
+    /// <summary>
+    /// Extracts unsubscribe links using anchor-based heuristics.
+    /// Collects all anchor tags with surrounding context and evaluates them based on unsubscribe-related keywords.
+    /// </summary>
+    private string? ExtractUnsubscribeLinkWithAnchorHeuristics(string emailBody)
+    {
+        // Step 1: Collect all anchor candidates with context
+        var candidates = CollectAnchorCandidates(emailBody);
+        
+        if (candidates.Count == 0)
+        {
+            _logger.LogInformation("No anchor tags found in email body");
+            return null;
+        }
+        
+        _logger.LogInformation($"Found {candidates.Count} anchor candidate(s) for heuristic evaluation");
+        
+        // Step 2: Evaluate and select the best candidate
+        return SelectBestUnsubscribeCandidate(candidates);
+    }
+
+    /// <summary>
+    /// Collects all anchor tags from the email body with surrounding context (100 chars before/after).
+    /// </summary>
+    private List<AnchorCandidate> CollectAnchorCandidates(string emailBody)
+    {
+        var candidates = new List<AnchorCandidate>();
+        const int contextWindow = 100;
+        
+        // Match all anchor tags with href and text content
+        var anchorMatches = AnchorTagRegex.Matches(emailBody);
+        
+        foreach (Match match in anchorMatches)
+        {
+            var href = match.Groups[1].Value.Trim();
+            var anchorText = match.Groups[2].Value.Trim();
+            var position = match.Index;
+            
+            // Only process anchors with valid HTTP/HTTPS hrefs
+            if (!href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
+                !href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            
+            // Extract context before the anchor (100 chars or less)
+            var contextStartBefore = Math.Max(0, position - contextWindow);
+            var contextLengthBefore = position - contextStartBefore;
+            var contextBefore = emailBody.Substring(contextStartBefore, contextLengthBefore);
+            
+            // Extract context after the anchor (100 chars or less)
+            var anchorEnd = position + match.Length;
+            var contextStartAfter = anchorEnd;
+            var contextEndAfter = Math.Min(emailBody.Length, anchorEnd + contextWindow);
+            var contextLengthAfter = contextEndAfter - contextStartAfter;
+            var contextAfter = emailBody.Substring(contextStartAfter, contextLengthAfter);
+            
+            candidates.Add(new AnchorCandidate
+            {
+                Href = href,
+                AnchorText = anchorText,
+                ContextBefore = contextBefore,
+                ContextAfter = contextAfter,
+                Position = position
+            });
+        }
+        
+        return candidates;
+    }
+
+    /// <summary>
+    /// Evaluates anchor candidates and selects the most likely unsubscribe link.
+    /// Uses a deterministic priority-based selection strategy.
+    /// </summary>
+    private string? SelectBestUnsubscribeCandidate(List<AnchorCandidate> candidates)
+    {
+        // Priority 1: Anchor text directly contains "unsubscribe"
+        foreach (var candidate in candidates)
+        {
+            if (candidate.AnchorText.Contains("unsubscribe", StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogInformation($"Selected anchor with 'unsubscribe' in text: {candidate.Href}");
+                return candidate.Href;
+            }
+        }
+        
+        // Priority 2: Href contains unsubscribe-related keywords (using pre-computed variations)
+        foreach (var candidate in candidates)
+        {
+            foreach (var keywordVariation in UnsubscribeKeywordVariations)
+            {
+                if (candidate.Href.Contains(keywordVariation, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation($"Selected anchor with '{keywordVariation}' in href: {candidate.Href}");
+                    return candidate.Href;
+                }
+            }
+        }
+        
+        // Priority 3: Anchor text contains other unsubscribe-related keywords
+        foreach (var candidate in candidates)
+        {
+            foreach (var keyword in UnsubscribeKeywords)
+            {
+                if (candidate.AnchorText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    _logger.LogInformation($"Selected anchor with '{keyword}' in text: {candidate.Href}");
+                    return candidate.Href;
+                }
+            }
+        }
+        
+        // Priority 4: Context (before or after) contains unsubscribe-related keywords
+        // Check each context separately to avoid unnecessary string allocations
+        foreach (var candidate in candidates)
+        {
+            foreach (var keyword in UnsubscribeKeywords)
+            {
+                if (candidate.ContextBefore.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
+                    candidate.ContextAfter.Contains(keyword, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Additional check: anchor text should be actionable or empty
+                    // Empty text is allowed for image-based links (e.g., <a><img src="unsubscribe.png"></a>)
+                    var isActionPhrase = ActionPhrases.Any(phrase => 
+                        candidate.AnchorText.Contains(phrase, StringComparison.OrdinalIgnoreCase));
+                    
+                    if (isActionPhrase || string.IsNullOrWhiteSpace(candidate.AnchorText))
+                    {
+                        _logger.LogInformation($"Selected anchor with '{keyword}' in context: {candidate.Href}");
+                        return candidate.Href;
+                    }
+                }
+            }
+        }
+        
+        _logger.LogInformation("No anchor candidates matched unsubscribe-related criteria");
         return null;
     }
 
