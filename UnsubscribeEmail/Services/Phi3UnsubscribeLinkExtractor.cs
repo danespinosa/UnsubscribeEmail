@@ -61,6 +61,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     private Tokenizer? _tokenizer;
     private bool _modelInitialized = false;
 
+    // Regex patterns for anchor tag and URL matching
     private static readonly Regex AnchorTagRegex = new(
         @"<a[^>]+href=[""']([^""']+)[""'][^>]*>(.*?)</a>",
         RegexOptions.IgnoreCase | RegexOptions.Singleline | RegexOptions.Compiled);
@@ -72,6 +73,30 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     private static readonly Regex UrlRegex = new(
         @"https?://[^\s<>""']+",
         RegexOptions.Compiled);
+
+    // Keywords for unsubscribe link detection (used across multiple methods)
+    private static readonly string[] UnsubscribeKeywords = 
+    {
+        "unsubscribe",
+        "opt out",
+        "opt-out",
+        "manage preferences",
+        "email preferences",
+        "update preferences",
+        "no longer wish to receive"
+    };
+
+    // Common action phrases in anchor text (used across multiple methods)
+    private static readonly string[] ActionPhrases = 
+    {
+        "click here",
+        "here",
+        "click",
+        "tap here",
+        "this link",
+        "follow this link",
+        "tap"
+    };
 
     private static readonly Regex[] UnsubscribeLinkPatterns = 
     {
@@ -296,12 +321,11 @@ Email HTML to parse:
     private List<string> ExtractMultipleUnsubscribeContexts(string emailBody)
     {
         var contexts = new List<string>();
-        var keywords = new[] { "unsubscribe", "opt-out", "opt out", "optout", "manage preferences", "email preferences", "no longer wish to receive" };
         
         // Find all occurrences of keywords and extract contexts around them
         var keywordPositions = new List<(int position, string keyword)>();
         
-        foreach (var keyword in keywords)
+        foreach (var keyword in UnsubscribeKeywords)
         {
             var index = 0;
             while ((index = emailBody.IndexOf(keyword, index, StringComparison.OrdinalIgnoreCase)) != -1)
@@ -393,12 +417,11 @@ Email HTML to parse:
     private string? ExtractUnsubscribeContext(string emailBody)
     {
         // Search for multiple keywords related to unsubscribing
-        var keywords = new[] { "unsubscribe", "opt-out", "optout", "preferences" };
         int bestIndex = -1;
         string? foundKeyword = null;
         
         // Find the first occurrence of any keyword
-        foreach (var keyword in keywords)
+        foreach (var keyword in UnsubscribeKeywords)
         {
             var index = emailBody.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
             if (index != -1 && (bestIndex == -1 || index < bestIndex))
@@ -484,10 +507,8 @@ Email HTML to parse:
                 var href = nearbyAnchor.Groups[1].Value;
                 var anchorText = nearbyAnchor.Groups[2].Value.Trim().ToLower();
                 
-                // Look for common action phrases like "click here", "here", etc.
-                var actionPhrases = new[] { "click here", "here", "click", "tap here", "this link", "follow this link" };
-                
-                if (actionPhrases.Any(phrase => anchorText.Contains(phrase)))
+                // Look for common action phrases
+                if (ActionPhrases.Any(phrase => anchorText.Contains(phrase)))
                 {
                     if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
                         href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
@@ -591,17 +612,6 @@ Email HTML to parse:
     /// </summary>
     private string? SelectBestUnsubscribeCandidate(List<AnchorCandidate> candidates)
     {
-        // Keywords to search for (case-insensitive)
-        var keywords = new[]
-        {
-            "unsubscribe",
-            "opt out",
-            "opt-out",
-            "manage preferences",
-            "email preferences",
-            "update preferences"
-        };
-        
         // Priority 1: Anchor text directly contains "unsubscribe"
         foreach (var candidate in candidates)
         {
@@ -613,18 +623,19 @@ Email HTML to parse:
         }
         
         // Priority 2: Href contains unsubscribe-related keywords
+        // Pre-compute keyword variations for better performance
+        var keywordVariations = UnsubscribeKeywords
+            .SelectMany(k => new[] { k, k.Replace(" ", ""), k.Replace(" ", "-") })
+            .Distinct()
+            .ToArray();
+        
         foreach (var candidate in candidates)
         {
-            foreach (var keyword in keywords)
+            foreach (var keywordVariation in keywordVariations)
             {
-                // Remove spaces for URL matching (e.g., "opt out" -> "optout" or "opt-out")
-                var keywordNoSpace = keyword.Replace(" ", "");
-                var keywordWithHyphen = keyword.Replace(" ", "-");
-                
-                if (candidate.Href.Contains(keywordNoSpace, StringComparison.OrdinalIgnoreCase) ||
-                    candidate.Href.Contains(keywordWithHyphen, StringComparison.OrdinalIgnoreCase))
+                if (candidate.Href.Contains(keywordVariation, StringComparison.OrdinalIgnoreCase))
                 {
-                    _logger.LogInformation($"Selected anchor with '{keyword}' in href: {candidate.Href}");
+                    _logger.LogInformation($"Selected anchor with '{keywordVariation}' in href: {candidate.Href}");
                     return candidate.Href;
                 }
             }
@@ -633,7 +644,7 @@ Email HTML to parse:
         // Priority 3: Anchor text contains other unsubscribe-related keywords
         foreach (var candidate in candidates)
         {
-            foreach (var keyword in keywords)
+            foreach (var keyword in UnsubscribeKeywords)
             {
                 if (candidate.AnchorText.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
@@ -646,15 +657,14 @@ Email HTML to parse:
         // Priority 4: Context (before or after) contains unsubscribe-related keywords
         foreach (var candidate in candidates)
         {
-            var combinedContext = candidate.ContextBefore + " " + candidate.ContextAfter;
+            var combinedContext = $"{candidate.ContextBefore} {candidate.ContextAfter}";
             
-            foreach (var keyword in keywords)
+            foreach (var keyword in UnsubscribeKeywords)
             {
                 if (combinedContext.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Additional check: anchor text should be something actionable (like "click here", "here", etc.)
-                    var actionPhrases = new[] { "click", "here", "link", "tap" };
-                    var isActionPhrase = actionPhrases.Any(phrase => 
+                    // Additional check: anchor text should be something actionable
+                    var isActionPhrase = ActionPhrases.Any(phrase => 
                         candidate.AnchorText.Contains(phrase, StringComparison.OrdinalIgnoreCase));
                     
                     if (isActionPhrase || string.IsNullOrWhiteSpace(candidate.AnchorText))
