@@ -11,6 +11,16 @@ public interface IUnsubscribeLinkExtractor
 /// <summary>
 /// Represents an anchor tag candidate with surrounding context for heuristic evaluation.
 /// </summary>
+/// <remarks>
+/// This class stores information about an anchor tag found in the email body, including:
+/// - The href URL
+/// - The visible anchor text
+/// - Context window (100 characters before and after the anchor)
+/// - Position in the original document
+/// 
+/// This data is used by the anchor-based heuristic detection to identify unsubscribe links
+/// when regex-based extraction fails.
+/// </remarks>
 internal class AnchorCandidate
 {
     public string Href { get; set; } = string.Empty;
@@ -20,6 +30,29 @@ internal class AnchorCandidate
     public int Position { get; set; }
 }
 
+/// <summary>
+/// Extracts unsubscribe links from email content using a three-stage detection approach:
+/// regex patterns, anchor-based heuristics, and AI-powered analysis.
+/// </summary>
+/// <remarks>
+/// This extractor implements a progressive enhancement strategy for finding unsubscribe links:
+/// 
+/// 1. **Regex-based extraction** (Stage 1): Fast pattern matching for common unsubscribe link patterns.
+///    Returns immediately if a valid link is found.
+/// 
+/// 2. **Anchor-based heuristics** (Stage 2): If regex fails, extracts all anchor tags with 100-character
+///    context windows and evaluates them using keyword-based heuristics. Provides comprehensive coverage
+///    for cases where unsubscribe links don't match simple patterns.
+/// 
+/// 3. **Phi-3 AI model** (Stage 3): As a final fallback, uses Microsoft's Phi-3 language model to
+///    intelligently extract links from complex or obfuscated HTML structures.
+/// 
+/// The anchor-based heuristic stage (Stage 2) was added to enhance detection accuracy by:
+/// - Collecting all anchors with surrounding context for better understanding
+/// - Using deterministic keyword-based evaluation
+/// - Implementing priority-based selection when multiple candidates exist
+/// - Bridging the gap between simple regex patterns and heavyweight AI analysis
+/// </remarks>
 public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 {
     private readonly ILogger<Phi3UnsubscribeLinkExtractor> _logger;
@@ -91,6 +124,33 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         await Task.CompletedTask;
     }
 
+    /// <summary>
+    /// Extracts unsubscribe links from email body using a three-stage detection approach.
+    /// </summary>
+    /// <param name="emailBody">The raw HTML or text content of the email.</param>
+    /// <returns>
+    /// The unsubscribe URL if found, or null if no unsubscribe link could be detected.
+    /// </returns>
+    /// <remarks>
+    /// This method uses a three-stage detection strategy:
+    /// 
+    /// 1. **Regex-based extraction** (fastest): Searches for common unsubscribe patterns 
+    ///    including anchor tags with keywords like "unsubscribe", "opt-out", "preferences" 
+    ///    in the text or href attributes.
+    /// 
+    /// 2. **Anchor-based heuristics** (comprehensive): If regex fails, extracts all anchor 
+    ///    tags with surrounding context (100 chars before/after) and evaluates them using 
+    ///    keyword-based heuristics. Selection priority:
+    ///    - Anchor text contains "unsubscribe" (highest priority)
+    ///    - Href contains unsubscribe-related keywords
+    ///    - Anchor text contains other keywords (opt-out, preferences, etc.)
+    ///    - Surrounding context contains keywords with actionable anchor text
+    /// 
+    /// 3. **Phi-3 AI model** (fallback): If both regex and heuristics fail, uses the 
+    ///    Phi-3 language model for intelligent extraction from complex HTML structures.
+    /// 
+    /// All URLs are validated before returning to ensure they are well-formed.
+    /// </remarks>
     public async Task<string?> ExtractUnsubscribeLinkAsync(string emailBody)
     {
         // Step 1: Try regex-based extraction first (fast and efficient)
