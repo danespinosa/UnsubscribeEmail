@@ -80,6 +80,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         "unsubscribe",
         "opt out",
         "opt-out",
+        "optout",  // Added for consistency with regex patterns
         "manage preferences",
         "email preferences",
         "update preferences",
@@ -89,8 +90,16 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     // Pre-computed keyword variations for URL matching (includes no-space and hyphenated versions)
     // This avoids repeated string operations in loops
     private static readonly string[] UnsubscribeKeywordVariations = UnsubscribeKeywords
-        .SelectMany(k => new[] { k, k.Replace(" ", ""), k.Replace(" ", "-") })
-        .Distinct()
+        .Where(k => !k.Contains(" "))  // Keep single-word keywords as-is
+        .Concat(UnsubscribeKeywords
+            .Where(k => k.Contains(" "))
+            .SelectMany(k => new[] 
+            { 
+                k.Replace(" ", ""),      // "opt out" -> "optout"
+                k.Replace(" ", "-"),     // "opt out" -> "opt-out"
+                k                        // Keep original for matching
+            }))
+        .Distinct(StringComparer.OrdinalIgnoreCase)
         .ToArray();
 
     // Common action phrases in anchor text (used across multiple methods)
@@ -664,7 +673,8 @@ Email HTML to parse:
                 if (candidate.ContextBefore.Contains(keyword, StringComparison.OrdinalIgnoreCase) ||
                     candidate.ContextAfter.Contains(keyword, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Additional check: anchor text should be something actionable
+                    // Additional check: anchor text should be actionable or empty
+                    // Empty text is allowed for image-based links (e.g., <a><img src="unsubscribe.png"></a>)
                     var isActionPhrase = ActionPhrases.Any(phrase => 
                         candidate.AnchorText.Contains(phrase, StringComparison.OrdinalIgnoreCase));
                     
