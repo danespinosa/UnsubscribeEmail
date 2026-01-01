@@ -80,7 +80,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         RegexOptions.Compiled);
 
     // Keywords for unsubscribe link detection (used across multiple methods)
-    private static readonly string[] UnsubscribeKeywords = 
+    private static readonly string[] UnsubscribeKeywords =
     {
         "unsubscribe",
         "opt out",
@@ -98,8 +98,8 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         .Where(k => !k.Contains(" "))  // Keep single-word keywords as-is
         .Concat(UnsubscribeKeywords
             .Where(k => k.Contains(" "))
-            .SelectMany(k => new[] 
-            { 
+            .SelectMany(k => new[]
+            {
                 k.Replace(" ", ""),      // "opt out" -> "optout"
                 k.Replace(" ", "-"),     // "opt out" -> "opt-out"
                 k                        // Keep original for matching
@@ -108,7 +108,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         .ToArray();
 
     // Common action phrases in anchor text (used across multiple methods)
-    private static readonly string[] ActionPhrases = 
+    private static readonly string[] ActionPhrases =
     {
         "click here",
         "here",
@@ -119,7 +119,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         "tap"
     };
 
-    private static readonly Regex[] UnsubscribeLinkPatterns = 
+    private static readonly Regex[] UnsubscribeLinkPatterns =
     {
         new Regex(@"https?://[^\s<>""']+unsubscribe[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
         new Regex(@"https?://[^\s<>""']+/preferences[^\s<>""']*", RegexOptions.IgnoreCase | RegexOptions.Compiled),
@@ -166,7 +166,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         {
             _logger.LogError(ex, "Error loading Phi3 model. Using fallback extraction method.");
         }
-        
+
         await Task.CompletedTask;
     }
 
@@ -205,7 +205,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         // Step 1: Try anchor-based heuristics first (comprehensive detection)
         _logger.LogInformation("Attempting anchor-based heuristics...");
         var (anchorLink, allAnchors) = ExtractUnsubscribeLinkWithAnchorHeuristics(emailBody);
-        
+
         if (!string.IsNullOrEmpty(anchorLink) && IsValidUrl(anchorLink))
         {
             _logger.LogInformation($"Anchor-based heuristic extraction successful: {anchorLink}");
@@ -218,7 +218,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 
         // Step 2: Try regex-based extraction (fallback for patterns not caught by heuristics)
         var regexLink = ExtractUnsubscribeLinkFallback(emailBody);
-        
+
         if (!string.IsNullOrEmpty(regexLink))
         {
             // Validate that the URL is well-formed
@@ -260,10 +260,10 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
                     return link;
                 }
             }
-            
+
             // Fallback: Try multiple context windows to increase chances of finding the link
             var contextSnippets = ExtractMultipleUnsubscribeContexts(emailBody);
-            
+
             // If no unsubscribe context found, return the regex result (even if malformed)
             if (contextSnippets.Count == 0)
             {
@@ -302,17 +302,17 @@ Email HTML to parse:
 {contextSnippet}";
 
                 var sequences = _tokenizer.Encode(prompt);
-                
+
                 using var generatorParams = new GeneratorParams(_model);
                 // max_length is total tokens (input + output), increase to handle larger context
                 generatorParams.SetSearchOption("max_length", 2048);
                 generatorParams.SetSearchOption("min_length", 10); // Ensure some output
                 generatorParams.SetSearchOption("do_sample", false); // Deterministic output
                 generatorParams.SetSearchOption("top_k", 1); // Greedy decoding for consistency
-                
+
                 using var generator = new Generator(_model, generatorParams);
                 generator.AppendTokenSequences(sequences);
-                
+
                 // Generate response
                 while (!generator.IsDone())
                 {
@@ -321,7 +321,7 @@ Email HTML to parse:
 
                 var outputSequences = generator.GetSequence(0);
                 var output = _tokenizer.Decode(outputSequences);
-                
+
                 // Extract URL from output
                 var link = ExtractUrlFromText(output, prompt);
                 if (!string.IsNullOrEmpty(link))
@@ -342,7 +342,7 @@ Email HTML to parse:
                     _logger.LogInformation($"Phi3 model did not return a valid URL for context snippet");
                 }
             }
-            
+
             // Fall back to regex result if model didn't find a valid URL in any context
             _logger.LogInformation("No valid URL found in any context, falling back to regex result");
             return regexLink;
@@ -401,37 +401,104 @@ Selected unsubscribe URL:";
 
         try
         {
-            var sequences = _tokenizer.Encode(prompt);
-            
-            using var generatorParams = new GeneratorParams(_model);
-            generatorParams.SetSearchOption("max_length", 2048);
-            generatorParams.SetSearchOption("min_length", 10);
-            generatorParams.SetSearchOption("do_sample", false);
-            generatorParams.SetSearchOption("top_k", 1);
-            
-            using var generator = new Generator(_model, generatorParams);
-            generator.AppendTokenSequences(sequences);
-            
-            // Generate response
-            while (!generator.IsDone())
+            // if prompt is too long ask the model to process one URL at a time (assuming we have multiple anchors)
+            if (prompt.Length > 4096)
             {
-                generator.GenerateNextToken();
-            }
+                _logger.LogInformation("Prompt too long for multiple anchors, processing individually...");
 
-            var outputSequences = generator.GetSequence(0);
-            var output = _tokenizer.Decode(outputSequences);
-            
-            // Extract URL from output
-            var link = ExtractUrlFromText(output, prompt);
-            if (!string.IsNullOrEmpty(link))
-            {
-                _logger.LogInformation($"Phi3 model selected anchor with URL: {link}");
-                return link;
+                for (int i = anchors.Count - 1; i >= 0; i--)
+                {
+                    var anchor = anchors[i];
+                    var individualPrompt = $@"
+You are an email parser that identifies unsubscribe links from a list of anchor tags extracted from an HTML email.
+
+Below is a single anchor tag found in the email. It includes:
+- URL: The href attribute value
+- Link Text: The visible text of the anchor
+- Context Before: Text appearing before the anchor (up to 100 characters)
+- Context After: Text appearing after the anchor (up to 100 characters)
+
+Your task is to determine if this anchor is the unsubscribe link. Look for:
+- URLs or link text containing words like 'unsubscribe', 'opt-out', 'optout', 'preferences', 'manage preferences'
+- Context mentioning unsubscribe, opt-out, stop receiving emails, manage settings
+- Link text like 'click here', 'here', 'this link' when context mentions unsubscribing
+
+Anchor:
+- URL: {anchor.Href}
+- Link Text: {anchor.AnchorText}
+- Context Before: {anchor.ContextBefore}
+- Context After: {anchor.ContextAfter}
+
+Selected unsubscribe URL:";
+
+                    // Process individual prompt with model
+                    var sequences = _tokenizer.Encode(individualPrompt);
+                    using var generatorParams = new GeneratorParams(_model);
+                    generatorParams.SetSearchOption("max_length", individualPrompt.Length > 4096 ? 4096 : individualPrompt.Length);
+                    generatorParams.SetSearchOption("min_length", 10);
+                    generatorParams.SetSearchOption("do_sample", false);
+                    generatorParams.SetSearchOption("top_k", 1);
+                    using var generator = new Generator(_model, generatorParams);
+                    generator.AppendTokenSequences(sequences);
+                    // Generate response
+                    while (!generator.IsDone())
+                    {
+                        generator.GenerateNextToken();
+                    }
+
+                    var outputSequences = generator.GetSequence(0);
+                    var output = _tokenizer.Decode(outputSequences);
+                    // Extract URL from output
+                    var link = ExtractUrlFromText(output, individualPrompt);
+                    if (!string.IsNullOrEmpty(link))
+                    {
+                        _logger.LogInformation($"Phi3 model selected anchor with URL: {link}");
+                        return link;
+                    }
+                    else
+                    {
+                        _logger.LogInformation("Phi3 model did not select a valid unsubscribe anchor for this individual anchor");
+                    }
+                }
+
+                return null;
             }
             else
             {
-                _logger.LogInformation("Phi3 model did not select a valid unsubscribe anchor");
-                return null;
+
+                var sequences = _tokenizer.Encode(prompt);
+
+                using var generatorParams = new GeneratorParams(_model);
+                generatorParams.SetSearchOption("max_length", prompt.Length > 4096 ? 4096 : prompt.Length);
+                generatorParams.SetSearchOption("min_length", 10);
+                generatorParams.SetSearchOption("do_sample", false);
+                generatorParams.SetSearchOption("top_k", 1);
+
+                using var generator = new Generator(_model, generatorParams);
+                generator.AppendTokenSequences(sequences);
+
+                // Generate response
+                while (!generator.IsDone())
+                {
+                    generator.GenerateNextToken();
+                }
+
+                var outputSequences = generator.GetSequence(0);
+                var output = _tokenizer.Decode(outputSequences);
+
+                // Extract URL from output
+                var link = ExtractUrlFromText(output, prompt);
+                if (!string.IsNullOrEmpty(link))
+                {
+                    _logger.LogInformation($"Phi3 model selected anchor with URL: {link}");
+                    return link;
+                }
+                else
+                {
+                    _logger.LogInformation("Phi3 model did not select a valid unsubscribe anchor");
+                    return null;
+                }
+
             }
         }
         catch (Exception ex)
@@ -444,10 +511,10 @@ Selected unsubscribe URL:";
     private List<string> ExtractMultipleUnsubscribeContexts(string emailBody)
     {
         var contexts = new List<string>();
-        
+
         // Find all occurrences of keywords and extract contexts around them
         var keywordPositions = new List<(int position, string keyword)>();
-        
+
         foreach (var keyword in UnsubscribeKeywords)
         {
             var index = 0;
@@ -457,23 +524,23 @@ Selected unsubscribe URL:";
                 index += keyword.Length;
             }
         }
-        
+
         if (keywordPositions.Count == 0)
         {
             return contexts;
         }
-        
+
         // Sort by position
         keywordPositions.Sort((a, b) => a.position.CompareTo(b.position));
-        
+
         // Take the first 3 occurrences to avoid processing too much
         var positionsToProcess = keywordPositions.Take(3).ToList();
-        
+
         foreach (var (position, keyword) in positionsToProcess)
         {
             // Try to find the nearest <a> tag (either before or after the keyword)
             var anchorContext = FindNearestAnchorTag(emailBody, position);
-            
+
             if (!string.IsNullOrEmpty(anchorContext))
             {
                 _logger.LogInformation($"Extracted anchor tag context around '{keyword}' at position {position}");
@@ -484,30 +551,30 @@ Selected unsubscribe URL:";
                 // Fallback to extracting 1000 chars before and after the keyword
                 var startPos = Math.Max(0, position - 1000);
                 var endPos = Math.Min(emailBody.Length, position + keyword.Length + 1000);
-                
+
                 var length = endPos - startPos;
                 var context = emailBody.Substring(startPos, length);
-                
+
                 _logger.LogInformation($"Extracted context snippet #{contexts.Count + 1} (length: {context.Length}) centered around '{keyword}' at position {position}");
-                
+
                 contexts.Add(context);
             }
         }
-        
+
         return contexts;
     }
 
     private string FindNearestAnchorTag(string html, int keywordPosition)
     {
         const int searchRadius = 2000; // Search within 500 chars before and after keyword
-        
+
         var searchStart = Math.Max(0, keywordPosition - searchRadius);
         var searchEnd = Math.Min(html.Length, keywordPosition + searchRadius);
-        
+
         // Find <a> tags before and after the keyword position
         var beforeSection = html.Substring(searchStart, keywordPosition - searchStart);
         var afterSection = html.Substring(keywordPosition, searchEnd - keywordPosition);
-        
+
         // Look for <a> tag that contains or is near the keyword
         // First, try to find <a> tag after the keyword (common pattern: "To unsubscribe... <a href...>click here</a>")
         var aTagAfterMatch = Regex.Match(afterSection, @"<a\s+[^>]*href\s*=\s*[""']([^""']+)[""'][^>]*>.*?</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
@@ -518,7 +585,7 @@ Selected unsubscribe URL:";
             var fullEnd = Math.Min(html.Length, keywordPosition + aTagAfterMatch.Index + aTagAfterMatch.Length + 100);
             return html.Substring(fullStart, fullEnd - fullStart);
         }
-        
+
         // Second, try to find <a> tag before the keyword (pattern: "<a>unsubscribe</a>")
         var aTagBeforeMatches = Regex.Matches(beforeSection, @"<a\s+[^>]*href\s*=\s*[""']([^""']+)[""'][^>]*>.*?</a>", RegexOptions.IgnoreCase | RegexOptions.Singleline);
         if (aTagBeforeMatches.Count > 0)
@@ -527,13 +594,13 @@ Selected unsubscribe URL:";
             var lastMatch = aTagBeforeMatches[aTagBeforeMatches.Count - 1];
             var tagStart = searchStart + lastMatch.Index;
             var tagEnd = tagStart + lastMatch.Length;
-            
+
             // Extract context including some padding
             var fullStart = Math.Max(0, tagStart - 100);
             var fullEnd = Math.Min(html.Length, tagEnd + 200);
             return html.Substring(fullStart, fullEnd - fullStart);
         }
-        
+
         return null;
     }
 
@@ -542,7 +609,7 @@ Selected unsubscribe URL:";
         // Search for multiple keywords related to unsubscribing
         int bestIndex = -1;
         string? foundKeyword = null;
-        
+
         // Find the first occurrence of any keyword
         foreach (var keyword in UnsubscribeKeywords)
         {
@@ -553,7 +620,7 @@ Selected unsubscribe URL:";
                 foundKeyword = keyword;
             }
         }
-        
+
         if (bestIndex == -1 || foundKeyword == null)
         {
             // No keywords found, return null to trigger fallback
@@ -564,16 +631,16 @@ Selected unsubscribe URL:";
         // because often the link comes after phrases like "To unsubscribe, please click here"
         // Take 200 chars before and 1000 chars after the start of the keyword
         var startPos = Math.Max(0, bestIndex - 200);
-        
+
         // End position: include more content after to capture links that come after the keyword
         var endPos = Math.Min(emailBody.Length, bestIndex + foundKeyword.Length + 1000);
-        
+
         // Extract the context snippet
         var length = endPos - startPos;
         var context = emailBody.Substring(startPos, length);
-        
+
         _logger.LogInformation($"Extracted context snippet (length: {context.Length}) starting at position {startPos}");
-        
+
         return context;
     }
 
@@ -581,27 +648,27 @@ Selected unsubscribe URL:";
     {
         // Step 1: Look for anchor tags with unsubscribe keywords in the text or href
         var anchorMatches = AnchorTagRegex.Matches(emailBody);
-        
+
         foreach (Match anchorMatch in anchorMatches)
         {
             var anchorText = anchorMatch.Groups[2].Value;
             var href = anchorMatch.Groups[1].Value;
-            
+
             // Check if anchor text contains unsubscribe-related keywords
             if (UnsubscribeKeywordsRegex.IsMatch(anchorText))
             {
-                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                     href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation($"Found unsubscribe link in anchor tag text: {href}");
                     return href;
                 }
             }
-            
+
             // Check if href contains unsubscribe-related keywords
             if (UnsubscribeKeywordsRegex.IsMatch(href))
             {
-                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                     href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 {
                     _logger.LogInformation($"Found unsubscribe link in href: {href}");
@@ -609,31 +676,31 @@ Selected unsubscribe URL:";
                 }
             }
         }
-        
+
         // Step 2: Look for links near unsubscribe keywords (within ~500 characters)
         // This handles cases like: "If you would like to unsubscribe... <a>click here</a>"
         var keywordMatches = UnsubscribeKeywordsRegex.Matches(emailBody);
-        
+
         foreach (Match keywordMatch in keywordMatches)
         {
             var keywordPosition = keywordMatch.Index;
-            
+
             // Search for anchor tags within 500 characters after the keyword
             var searchStart = keywordPosition;
             var searchEnd = Math.Min(emailBody.Length, keywordPosition + 500);
             var searchText = emailBody.Substring(searchStart, searchEnd - searchStart);
-            
+
             var nearbyAnchors = AnchorTagRegex.Matches(searchText);
-            
+
             foreach (Match nearbyAnchor in nearbyAnchors)
             {
                 var href = nearbyAnchor.Groups[1].Value;
                 var anchorText = nearbyAnchor.Groups[2].Value.Trim().ToLower();
-                
+
                 // Look for common action phrases
                 if (ActionPhrases.Any(phrase => anchorText.Contains(phrase)))
                 {
-                    if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) || 
+                    if (href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
                         href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                     {
                         _logger.LogInformation($"Found unsubscribe link near keyword (anchor text: '{anchorText}'): {href}");
@@ -647,7 +714,7 @@ Selected unsubscribe URL:";
         foreach (var regex in UnsubscribeLinkPatterns)
         {
             var match = regex.Match(emailBody);
-            
+
             if (match.Success)
             {
                 var link = match.Groups[match.Groups.Count > 1 ? 1 : 0].Value;
@@ -668,15 +735,15 @@ Selected unsubscribe URL:";
     {
         // Step 1: Collect all anchor candidates with context
         var candidates = CollectAnchorCandidates(emailBody);
-        
+
         if (candidates.Count == 0)
         {
             _logger.LogInformation("No anchor tags found in email body");
             return (null, candidates);
         }
-        
+
         _logger.LogInformation($"Found {candidates.Count} anchor candidate(s) for heuristic evaluation");
-        
+
         // Step 2: Evaluate and select the best candidate
         var selectedLink = SelectBestUnsubscribeCandidate(candidates);
         return (selectedLink, candidates);
@@ -689,35 +756,35 @@ Selected unsubscribe URL:";
     {
         var candidates = new List<AnchorCandidate>();
         const int contextWindow = 100;
-        
+
         // Match all anchor tags with href and text content
         var anchorMatches = AnchorTagRegex.Matches(emailBody);
-        
+
         foreach (Match match in anchorMatches)
         {
             var href = match.Groups[1].Value.Trim();
             var anchorText = match.Groups[2].Value.Trim();
             var position = match.Index;
-            
+
             // Only process anchors with valid HTTP/HTTPS hrefs
-            if (!href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) && 
+            if (!href.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                 !href.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
             {
                 continue;
             }
-            
+
             // Extract context before the anchor (100 chars or less)
             var contextStartBefore = Math.Max(0, position - contextWindow);
             var contextLengthBefore = position - contextStartBefore;
             var contextBefore = emailBody.Substring(contextStartBefore, contextLengthBefore);
-            
+
             // Extract context after the anchor (100 chars or less)
             var anchorEnd = position + match.Length;
             var contextStartAfter = anchorEnd;
             var contextEndAfter = Math.Min(emailBody.Length, anchorEnd + contextWindow);
             var contextLengthAfter = contextEndAfter - contextStartAfter;
             var contextAfter = emailBody.Substring(contextStartAfter, contextLengthAfter);
-            
+
             candidates.Add(new AnchorCandidate
             {
                 Href = href,
@@ -727,7 +794,7 @@ Selected unsubscribe URL:";
                 Position = position
             });
         }
-        
+
         return candidates;
     }
 
@@ -746,7 +813,7 @@ Selected unsubscribe URL:";
                 return candidate.Href;
             }
         }
-        
+
         // Priority 2: Href contains unsubscribe-related keywords (using pre-computed variations)
         foreach (var candidate in candidates)
         {
@@ -759,7 +826,7 @@ Selected unsubscribe URL:";
                 }
             }
         }
-        
+
         // Priority 3: Anchor text contains other unsubscribe-related keywords
         foreach (var candidate in candidates)
         {
@@ -772,7 +839,7 @@ Selected unsubscribe URL:";
                 }
             }
         }
-        
+
         // Priority 4: Context (before or after) contains unsubscribe-related keywords
         // Check each context separately to avoid unnecessary string allocations
         foreach (var candidate in candidates)
@@ -784,9 +851,9 @@ Selected unsubscribe URL:";
                 {
                     // Additional check: anchor text should be actionable or empty
                     // Empty text is allowed for image-based links (e.g., <a><img src="unsubscribe.png"></a>)
-                    var isActionPhrase = ActionPhrases.Any(phrase => 
+                    var isActionPhrase = ActionPhrases.Any(phrase =>
                         candidate.AnchorText.Contains(phrase, StringComparison.OrdinalIgnoreCase));
-                    
+
                     if (isActionPhrase || string.IsNullOrWhiteSpace(candidate.AnchorText))
                     {
                         _logger.LogInformation($"Selected anchor with '{keyword}' in context: {candidate.Href}");
@@ -795,7 +862,7 @@ Selected unsubscribe URL:";
                 }
             }
         }
-        
+
         _logger.LogInformation("No anchor candidates matched unsubscribe-related criteria");
         return null;
     }
@@ -876,21 +943,21 @@ Selected unsubscribe URL:";
         {
             text = text.Substring(assistantIndex + "<|assistant|>".Length);
         }
-        
+
         // Clean up the response
         text = text.Trim();
-        
+
         // Check if model explicitly said no link found
-        if (text.Contains("NONE", StringComparison.OrdinalIgnoreCase) || 
+        if (text.Contains("NONE", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("no link", StringComparison.OrdinalIgnoreCase) ||
             text.Contains("not found", StringComparison.OrdinalIgnoreCase))
         {
             return null;
         }
-        
+
         // Extract URL from the model output - try to find the cleanest URL
         var matches = UrlRegex.Matches(text);
-        
+
         if (matches.Count > 0)
         {
             // Return the first valid-looking URL
@@ -899,7 +966,7 @@ Selected unsubscribe URL:";
                 var url = match.Value;
                 // Remove trailing punctuation that might not be part of the URL
                 url = url.TrimEnd('.', ',', ';', ')', ']', '}');
-                
+
                 if (IsValidUrl(url))
                 {
                     return url;
