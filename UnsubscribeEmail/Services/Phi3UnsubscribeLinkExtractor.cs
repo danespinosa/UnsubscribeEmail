@@ -196,7 +196,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     {
         // Step 1: Try anchor-based heuristics first (comprehensive detection)
         _logger.LogInformation("Attempting anchor-based heuristics...");
-        var anchorLink = ExtractUnsubscribeLinkWithAnchorHeuristics(emailBody);
+        var (anchorLink, allAnchors) = ExtractUnsubscribeLinkWithAnchorHeuristics(emailBody);
         
         if (!string.IsNullOrEmpty(anchorLink) && IsValidUrl(anchorLink))
         {
@@ -241,7 +241,19 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 
         try
         {
-            // Try multiple context windows to increase chances of finding the link
+            // If we have collected anchors from Step 1, use them for model processing
+            // Otherwise, fall back to extracting context snippets from the full email body
+            if (allAnchors.Count > 0)
+            {
+                _logger.LogInformation($"Processing {allAnchors.Count} anchor(s) with Phi3 model...");
+                var link = await ExtractFromAnchorsWithModelAsync(allAnchors);
+                if (!string.IsNullOrEmpty(link) && IsValidUrl(link))
+                {
+                    return link;
+                }
+            }
+            
+            // Fallback: Try multiple context windows to increase chances of finding the link
             var contextSnippets = ExtractMultipleUnsubscribeContexts(emailBody);
             
             // If no unsubscribe context found, return the regex result (even if malformed)
@@ -331,6 +343,93 @@ Email HTML to parse:
         {
             _logger.LogError(ex, "Error using Phi3 model for extraction, falling back to regex");
             return regexLink;
+        }
+    }
+
+    /// <summary>
+    /// Processes a list of anchor candidates with the Phi3 model to select the most likely unsubscribe link.
+    /// </summary>
+    private async Task<string?> ExtractFromAnchorsWithModelAsync(List<AnchorCandidate> anchors)
+    {
+        if (_model == null || _tokenizer == null)
+        {
+            return null;
+        }
+
+        // Build a formatted list of anchors for the model
+        var anchorList = new System.Text.StringBuilder();
+        for (int i = 0; i < anchors.Count; i++)
+        {
+            anchorList.AppendLine($"Anchor {i + 1}:");
+            anchorList.AppendLine($"  URL: {anchors[i].Href}");
+            anchorList.AppendLine($"  Link Text: {anchors[i].AnchorText}");
+            anchorList.AppendLine($"  Context Before: {anchors[i].ContextBefore}");
+            anchorList.AppendLine($"  Context After: {anchors[i].ContextAfter}");
+            anchorList.AppendLine();
+        }
+
+        // Create prompt for the model
+        var prompt = $@"
+You are an email parser that identifies unsubscribe links from a list of anchor tags extracted from an HTML email.
+
+Below is a list of {anchors.Count} anchor tag(s) found in the email. Each anchor includes:
+- URL: The href attribute value
+- Link Text: The visible text of the anchor
+- Context Before: Text appearing before the anchor (up to 100 characters)
+- Context After: Text appearing after the anchor (up to 100 characters)
+
+Your task is to select ONLY ONE anchor that is most likely the unsubscribe link. Look for:
+- URLs or link text containing words like 'unsubscribe', 'opt-out', 'optout', 'preferences', 'manage preferences'
+- Context mentioning unsubscribe, opt-out, stop receiving emails, manage settings
+- Link text like 'click here', 'here', 'this link' when context mentions unsubscribing
+
+Return ONLY the complete URL (the href value) of the selected anchor. Do not include the anchor number or any explanation.
+If none of the anchors appear to be an unsubscribe link, return NONE.
+
+Anchors:
+{anchorList}
+
+Selected unsubscribe URL:";
+
+        try
+        {
+            var sequences = _tokenizer.Encode(prompt);
+            
+            using var generatorParams = new GeneratorParams(_model);
+            generatorParams.SetSearchOption("max_length", 2048);
+            generatorParams.SetSearchOption("min_length", 10);
+            generatorParams.SetSearchOption("do_sample", false);
+            generatorParams.SetSearchOption("top_k", 1);
+            
+            using var generator = new Generator(_model, generatorParams);
+            generator.AppendTokenSequences(sequences);
+            
+            // Generate response
+            while (!generator.IsDone())
+            {
+                generator.GenerateNextToken();
+            }
+
+            var outputSequences = generator.GetSequence(0);
+            var output = _tokenizer.Decode(outputSequences);
+            
+            // Extract URL from output
+            var link = ExtractUrlFromText(output, prompt);
+            if (!string.IsNullOrEmpty(link))
+            {
+                _logger.LogInformation($"Phi3 model selected anchor with URL: {link}");
+                return link;
+            }
+            else
+            {
+                _logger.LogInformation("Phi3 model did not select a valid unsubscribe anchor");
+                return null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error processing anchors with Phi3 model");
+            return null;
         }
     }
 
@@ -555,8 +654,9 @@ Email HTML to parse:
     /// <summary>
     /// Extracts unsubscribe links using anchor-based heuristics.
     /// Collects all anchor tags with surrounding context and evaluates them based on unsubscribe-related keywords.
+    /// Returns both the selected link and all collected anchors for potential fallback processing.
     /// </summary>
-    private string? ExtractUnsubscribeLinkWithAnchorHeuristics(string emailBody)
+    private (string? selectedLink, List<AnchorCandidate> allCandidates) ExtractUnsubscribeLinkWithAnchorHeuristics(string emailBody)
     {
         // Step 1: Collect all anchor candidates with context
         var candidates = CollectAnchorCandidates(emailBody);
@@ -564,13 +664,14 @@ Email HTML to parse:
         if (candidates.Count == 0)
         {
             _logger.LogInformation("No anchor tags found in email body");
-            return null;
+            return (null, candidates);
         }
         
         _logger.LogInformation($"Found {candidates.Count} anchor candidate(s) for heuristic evaluation");
         
         // Step 2: Evaluate and select the best candidate
-        return SelectBestUnsubscribeCandidate(candidates);
+        var selectedLink = SelectBestUnsubscribeCandidate(candidates);
+        return (selectedLink, candidates);
     }
 
     /// <summary>
