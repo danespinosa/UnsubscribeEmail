@@ -1,3 +1,4 @@
+using System.Net;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.FileProviders;
@@ -54,9 +55,19 @@ builder.Services.AddSingleton<IEmailManagementBackgroundService, EmailManagement
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.All;
+    // specify known networks is necessary from version 8 https://learn.microsoft.com/en-us/dotnet/core/compatibility/aspnet-core/8.0/forwarded-headers-unknown-proxies
+    var knownNetwork = builder.Configuration["KnownNetwork"];
+    var prefixLength = builder.Configuration["KnownNetworkPrefixLength"];
+    if (!string.IsNullOrEmpty(knownNetwork))
+    {
+        var prefixLengthInt = prefixLength != null && int.TryParse(prefixLength, out var result) ? result : 24;
+        options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse(knownNetwork), prefixLengthInt));
+    }
 });
 
 var app = builder.Build();
+
+app.UseForwardedHeaders();
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -65,8 +76,6 @@ if (!app.Environment.IsDevelopment())
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
-
-app.UseForwardedHeaders();
 
 // Configure path to generate https cert
 app.UseStaticFiles(new StaticFileOptions
