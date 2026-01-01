@@ -52,6 +52,11 @@ public class IndexModel : PageModel
             
             return new JsonResult(new { success = true, jobId });
         }
+        catch (MicrosoftIdentityWebChallengeUserException)
+        {
+            _logger.LogWarning("User needs to re-authenticate");
+            return new JsonResult(new { success = false, error = "REQUIRE_LOGIN" });
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting background processing");

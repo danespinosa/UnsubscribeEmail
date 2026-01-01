@@ -200,6 +200,13 @@
             showToast(data.message, data.type);
         });
 
+        connection.on("RequireLogin", function () {
+            showToast('Your session has expired. Please log in again.', 'error');
+            setTimeout(() => {
+                window.location.href = '/MicrosoftIdentity/Account/SignIn';
+            }, 2000);
+        });
+
         connection.start().then(function () {
             console.log("SignalR connected");
         }).catch(function (err) {
@@ -240,6 +247,13 @@
                 const result = await response.json();
                 
                 if (!result.success) {
+                    if (result.error === 'REQUIRE_LOGIN') {
+                        showToast('Your session has expired. Please log in again.', 'error');
+                        setTimeout(() => {
+                            window.location.href = '/MicrosoftIdentity/Account/SignIn';
+                        }, 2000);
+                        return;
+                    }
                     showError(result.error || 'Failed to start processing');
                     document.getElementById('progressSection').style.display = 'none';
                 }

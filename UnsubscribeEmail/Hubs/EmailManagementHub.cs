@@ -62,6 +62,11 @@ namespace UnsubscribeEmail.Hubs
                 
                 await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully marked {result.Count} emails as read from {senderEmail}", type = "success" });
             }
+            catch (MicrosoftIdentityWebChallengeUserException)
+            {
+                _logger.LogWarning("User needs to re-authenticate");
+                await Clients.Caller.SendAsync("RequireLogin");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, $"Error marking emails as read from {senderEmail}");
@@ -82,6 +87,11 @@ namespace UnsubscribeEmail.Hubs
                 var result = await _emailManagementService.DeleteEmailsAsync(senderEmail, daysBack, accessToken);
                 
                 await Clients.Caller.SendAsync("ReceiveNotification", new { message = result.Message, type = result.Success ? "success" : "error" });
+            }
+            catch (MicrosoftIdentityWebChallengeUserException)
+            {
+                _logger.LogWarning("User needs to re-authenticate");
+                await Clients.Caller.SendAsync("RequireLogin");
             }
             catch (Exception ex)
             {
@@ -108,6 +118,11 @@ namespace UnsubscribeEmail.Hubs
 
                 await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully marked {totalMarked} emails as read from {senderEmails.Length} sender(s)", type = "success" });
             }
+            catch (MicrosoftIdentityWebChallengeUserException)
+            {
+                _logger.LogWarning("User needs to re-authenticate");
+                await Clients.Caller.SendAsync("RequireLogin");
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error marking emails as read from multiple senders");
@@ -132,6 +147,11 @@ namespace UnsubscribeEmail.Hubs
                 }
 
                 await Clients.Caller.SendAsync("ReceiveNotification", new { message = $"Successfully deleted {totalDeleted} emails from {senderEmails.Length} sender(s)", type = "success" });
+            }
+            catch (MicrosoftIdentityWebChallengeUserException)
+            {
+                _logger.LogWarning("User needs to re-authenticate");
+                await Clients.Caller.SendAsync("RequireLogin");
             }
             catch (Exception ex)
             {
