@@ -268,4 +268,41 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
         Assert.NotNull(result);
         Assert.Contains("unsubscribe.example.com", result);
     }
+
+    [Fact]
+    public async Task ExtractUnsubscribeLinkAsync_WithModel_ProcessesAnchorsWhenHeuristicsFail()
+    {
+        if (!IsModelAvailable())
+        {
+            return;
+        }
+
+        _mockConfiguration.Setup(x => x["Phi3ModelPath"]).Returns(ModelPath);
+        var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
+        
+        // Email with multiple anchors where heuristics might not clearly identify the unsubscribe link
+        // but the model should be able to select it based on context
+        var emailBody = @"
+            <html>
+            <body>
+                <h1>Special Offer!</h1>
+                <p>Check out our latest products:</p>
+                <a href='https://example.com/products'>Browse Products</a>
+                <a href='https://example.com/deals'>View Deals</a>
+                <a href='https://example.com/account'>My Account</a>
+                
+                <div style='margin-top: 50px; font-size: 10px;'>
+                    <p>You're receiving this because you signed up for our newsletter.</p>
+                    <p>To stop receiving these emails, <a href='https://example.com/stop-emails?user=123'>click here</a>.</p>
+                </div>
+            </body>
+            </html>
+        ";
+
+        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+
+        Assert.NotNull(result);
+        // Should identify the "stop-emails" link based on surrounding context
+        Assert.Contains("stop-emails", result, StringComparison.OrdinalIgnoreCase);
+    }
 }

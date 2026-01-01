@@ -39,19 +39,24 @@ internal class AnchorCandidate
 /// 
 /// 1. **Anchor-based heuristics** (Stage 1): Extracts all anchor tags with 100-character
 ///    context windows and evaluates them using keyword-based heuristics. Provides comprehensive coverage
-///    by analyzing anchors with surrounding context.
+///    by analyzing anchors with surrounding context. All collected anchors are retained for potential
+///    AI model processing if heuristics fail to identify a match.
 /// 
 /// 2. **Regex-based extraction** (Stage 2): If heuristics fail, uses fast pattern matching for common 
 ///    unsubscribe link patterns. Catches patterns that may be missed by the heuristic approach.
 /// 
 /// 3. **Phi-3 AI model** (Stage 3): As a final fallback, uses Microsoft's Phi-3 language model to
-///    intelligently extract links from complex or obfuscated HTML structures.
+///    intelligently extract links from complex or obfuscated HTML structures. The model first attempts
+///    to process the collected anchors from Stage 1 (if available) before falling back to context-based
+///    extraction. This provides a structured, focused approach for the AI model to select the correct
+///    unsubscribe link.
 /// 
 /// The anchor-based heuristic stage (Stage 1) provides enhanced detection accuracy by:
 /// - Collecting all anchors with surrounding context for better understanding
 /// - Using deterministic keyword-based evaluation
 /// - Implementing priority-based selection when multiple candidates exist
 /// - Providing comprehensive detection before falling back to simpler patterns
+/// - Retaining all collected anchors for AI model processing if needed
 /// </remarks>
 public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
 {
@@ -189,6 +194,9 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     /// 
     /// 3. **Phi-3 AI model** (final fallback): If both heuristics and regex fail, uses the 
     ///    Phi-3 language model for intelligent extraction from complex HTML structures.
+    ///    The model first attempts to process collected anchors from stage 1 (if available),
+    ///    allowing it to select from a structured list. If no anchors are available or selection
+    ///    fails, it falls back to processing context snippets from the full email body.
     /// 
     /// All URLs are validated before returning to ensure they are well-formed.
     /// </remarks>
