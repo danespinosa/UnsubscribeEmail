@@ -12,8 +12,7 @@ var builder = Microsoft.AspNetCore.Builder.WebApplication.CreateBuilder(args);
 // Check if Azure AD is configured
 var azureAdSection = builder.Configuration.GetSection("AzureAd");
 var clientId = azureAdSection["ClientId"];
-var hasAzureAdConfig = !string.IsNullOrEmpty(clientId);
-
+var knownNetwork = builder.Configuration["KnownNetwork"];
 
 // Add Microsoft Identity authentication
 builder.Services.AddAuthentication(OpenIdConnectDefaults.AuthenticationScheme)
@@ -54,23 +53,24 @@ builder.Services.AddSingleton<IUnsubscribeBackgroundService, UnsubscribeBackgrou
 builder.Services.AddSingleton<IEmailManagementBackgroundService, EmailManagementBackgroundService>();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
-    options.ForwardedHeaders = ForwardedHeaders.All;
     // specify known networks is necessary from version 8 https://learn.microsoft.com/en-us/dotnet/core/compatibility/aspnet-core/8.0/forwarded-headers-unknown-proxies
     // This makes unnecessary the ASPNETCORE_FORWARDEDHEADERS_ENABLED environment variable override.
     // https://github.com/dotnet/aspnetcore/blob/main/src/DefaultBuilder/src/ForwardedHeadersOptionsSetup.cs
     // https://github.com/dotnet/aspnetcore/blob/main/src/DefaultBuilder/src/ForwardedHeadersStartupFilter.cs
-    var knownNetwork = builder.Configuration["KnownNetwork"];
-    var prefixLength = builder.Configuration["KnownNetworkPrefixLength"];
     if (!string.IsNullOrEmpty(knownNetwork))
     {
+        var prefixLength = builder.Configuration["KnownNetworkPrefixLength"];
+        options.ForwardedHeaders = ForwardedHeaders.All;
         var prefixLengthInt = prefixLength != null && int.TryParse(prefixLength, out var result) ? result : 24;
         options.KnownIPNetworks.Add(new System.Net.IPNetwork(IPAddress.Parse(knownNetwork), prefixLengthInt));
     }
 });
 
 var app = builder.Build();
-
-app.UseForwardedHeaders();
+if (!string.IsNullOrEmpty(knownNetwork))
+{
+    app.UseForwardedHeaders();
+}
 
 // Configure the HTTP request pipeline.
 if (!app.Environment.IsDevelopment())
@@ -90,7 +90,6 @@ app.UseStaticFiles(new StaticFileOptions
 });
 
 app.UseHttpsRedirection();
-
 app.UseRouting();
 
 app.UseAuthentication();
