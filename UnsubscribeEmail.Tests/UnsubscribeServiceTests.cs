@@ -7,14 +7,14 @@ namespace UnsubscribeEmail.Tests;
 
 public class UnsubscribeServiceTests
 {
-    private readonly Mock<IEmailService> _mockEmailService;
+    private readonly Mock<IEmailManagementBackgroundService> _mockEmailService;
     private readonly Mock<IUnsubscribeLinkExtractor> _mockLinkExtractor;
     private readonly Mock<ILogger<UnsubscribeService>> _mockLogger;
     private readonly UnsubscribeService _service;
 
     public UnsubscribeServiceTests()
     {
-        _mockEmailService = new Mock<IEmailService>();
+        _mockEmailService = new Mock<IEmailManagementBackgroundService>();
         _mockLinkExtractor = new Mock<IUnsubscribeLinkExtractor>();
         _mockLogger = new Mock<ILogger<UnsubscribeService>>();
         _service = new UnsubscribeService(_mockEmailService.Object, _mockLinkExtractor.Object, _mockLogger.Object);

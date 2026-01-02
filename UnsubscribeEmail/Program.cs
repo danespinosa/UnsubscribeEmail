@@ -46,11 +46,10 @@ builder.Services.AddSignalR();
 builder.Services.AddHttpClient();
 
 // Register services
-builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddSingleton<IUnsubscribeLinkExtractor, Phi3UnsubscribeLinkExtractor>();
 builder.Services.AddScoped<IUnsubscribeService, UnsubscribeService>();
 builder.Services.AddSingleton<IUnsubscribeBackgroundService, UnsubscribeBackgroundService>();
-builder.Services.AddSingleton<IEmailManagementBackgroundService, EmailManagementBackgroundService>();
+builder.Services.AddScoped<IEmailManagementBackgroundService, EmailManagementBackgroundService>();
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     // specify known networks is necessary from version 8 https://learn.microsoft.com/en-us/dotnet/core/compatibility/aspnet-core/8.0/forwarded-headers-unknown-proxies

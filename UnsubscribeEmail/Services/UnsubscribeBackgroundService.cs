@@ -54,7 +54,7 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
         try
         {
             using var scope = _serviceScopeFactory.CreateScope();
-            var emailService = scope.ServiceProvider.GetRequiredService<IEmailService>();
+            var emailService = scope.ServiceProvider.GetRequiredService<IEmailManagementBackgroundService>();
             var linkExtractor = scope.ServiceProvider.GetRequiredService<IUnsubscribeLinkExtractor>();
 
             // Step 1: Fetch emails using the pre-acquired access token with progress updates

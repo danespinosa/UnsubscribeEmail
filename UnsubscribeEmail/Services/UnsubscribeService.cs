@@ -10,13 +10,13 @@ public interface IUnsubscribeService
 
 public class UnsubscribeService : IUnsubscribeService
 {
-    private readonly IEmailService _emailService;
+    private readonly IEmailManagementBackgroundService _emailService;
     private readonly IUnsubscribeLinkExtractor _linkExtractor;
     private readonly ILogger<UnsubscribeService> _logger;
     private readonly ConcurrentDictionary<string, SenderUnsubscribeInfo> _cache;
 
     public UnsubscribeService(
-        IEmailService emailService,
+        IEmailManagementBackgroundService emailService,
         IUnsubscribeLinkExtractor linkExtractor,
         ILogger<UnsubscribeService> logger)
     {
