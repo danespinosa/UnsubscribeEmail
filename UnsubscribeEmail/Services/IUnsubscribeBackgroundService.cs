@@ -4,7 +4,7 @@ namespace UnsubscribeEmail.Services;
 
 public interface IUnsubscribeBackgroundService
 {
-    Task<string> StartProcessingAsync(string userId, string accessToken, int daysBack = 365);
+    string StartProcessing(string userId, string accessToken, int daysBack = 365);
     Task<ProcessingStatus?> GetStatusAsync(string jobId);
 }
 

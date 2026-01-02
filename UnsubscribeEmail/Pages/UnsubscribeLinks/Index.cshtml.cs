@@ -48,7 +48,7 @@ public class IndexModel : PageModel
             if (daysBack < 1) daysBack = 1;
             if (daysBack > 365) daysBack = 365;
             
-            var jobId = await _backgroundService.StartProcessingAsync(userId, accessToken, daysBack);
+            var jobId = _backgroundService.StartProcessing(userId, accessToken, daysBack);
             
             return new JsonResult(new { success = true, jobId });
         }

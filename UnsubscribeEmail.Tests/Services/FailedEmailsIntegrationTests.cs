@@ -76,7 +76,7 @@ public class FailedEmailsIntegrationTests
             var fileName = Path.GetFileName(htmlFile);
             var htmlContent = await File.ReadAllTextAsync(htmlFile);
 
-            var link = await extractor.ExtractUnsubscribeLinkAsync(htmlContent);
+            var (link, anchors) = await extractor.ExtractUnsubscribeLinkAsync(htmlContent);
             var success = !string.IsNullOrEmpty(link);
 
             results.Add((fileName, link, success));
@@ -124,7 +124,7 @@ public class FailedEmailsIntegrationTests
 
         _output.WriteLine($"Processing: {fileName}");
         
-        var link = await extractor.ExtractUnsubscribeLinkAsync(htmlContent);
+        var (link, anchors) = await extractor.ExtractUnsubscribeLinkAsync(htmlContent);
 
         if (!string.IsNullOrEmpty(link))
         {
@@ -155,3 +155,4 @@ public class FailedEmailsIntegrationTests
         }
     }
 }
+

@@ -23,7 +23,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "To unsubscribe, visit: https://example.com/unsubscribe";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -35,7 +35,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = @"<html><body>Click <a href=""https://example.com/unsubscribe?id=123"">here</a> to unsubscribe</body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -47,7 +47,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "Manage your preferences at https://example.com/preferences";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("preferences", result, StringComparison.OrdinalIgnoreCase);
@@ -59,7 +59,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "To opt-out, go to https://example.com/opt-out";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("opt-out", result, StringComparison.OrdinalIgnoreCase);
@@ -71,7 +71,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "Visit https://example.com/optout to stop receiving emails";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("optout", result, StringComparison.OrdinalIgnoreCase);
@@ -83,7 +83,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "This is a regular email with no unsubscribe link. Visit https://example.com for more info.";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.Null(result);
     }
@@ -98,7 +98,7 @@ public class Phi3UnsubscribeLinkExtractorTests
             Another link: https://example.com/other
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -110,7 +110,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "To UNSUBSCRIBE, visit: https://example.com/UNSUBSCRIBE";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("UNSUBSCRIBE", result, StringComparison.OrdinalIgnoreCase);
@@ -136,7 +136,7 @@ public class Phi3UnsubscribeLinkExtractorTests
             </html>
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("preferences", result, StringComparison.OrdinalIgnoreCase);
@@ -150,9 +150,8 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
-        Assert.Contains("email=user@test.com", result);
-        Assert.Contains("token=abc123", result);
+        Assert.Contains("email=user@test.com", result.UnsubscribeLink);
+        Assert.Contains("token=abc123", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -161,7 +160,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = @"<a href=""https://example.com/unsubscribe?email=test%40example.com"">Unsubscribe</a>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -173,7 +172,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var extractor = new Phi3UnsubscribeLinkExtractor(_mockLogger.Object, _mockConfiguration.Object);
         var emailBody = "";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.Null(result);
     }
@@ -186,8 +185,7 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
-        Assert.StartsWith("https://", result);
+        Assert.StartsWith("https://", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -199,8 +197,7 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
-        Assert.Contains("example.com", result);
+        Assert.Contains("example.com", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -211,8 +208,7 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
-        Assert.Contains("example.com", result);
+        Assert.Contains("example.com", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -223,7 +219,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://newsletter.example.com/unsubscribe/123"">Click here to unsubscribe</a>
                          </div>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -241,7 +237,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          </body>
                          </html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -256,7 +252,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          Unsubscribe
                          </a>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -272,8 +268,7 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
-        Assert.Contains("example.com", result);
+        Assert.Contains("example.com", result.UnsubscribeLink);
     }
 
     // ===== Tests for Anchor-Based Heuristic Detection =====
@@ -288,7 +283,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://newsletter.example.com/remove?id=abc123"">Unsubscribe from this list</a>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Equal("https://newsletter.example.com/remove?id=abc123", result);
@@ -304,7 +299,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://example.com/unsubscribe?user=123"">Click here</a>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -321,7 +316,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://example.com/opt-out?token=xyz"">Update settings</a>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("opt-out", result, StringComparison.OrdinalIgnoreCase);
@@ -336,7 +331,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://mail.example.com/managepreferences?id=456"">Settings</a>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("preferences", result, StringComparison.OrdinalIgnoreCase);
@@ -352,7 +347,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://example.com/stop-emails?id=789"">this link</a>.</p>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("stop-emails", result);
@@ -368,7 +363,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <p>Click <a href=""https://example.com/leave?user=test"">here</a> to opt out of future communications.</p>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Equal("https://example.com/leave?user=test", result);
@@ -383,7 +378,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <p>To update your email preferences, <a href=""https://example.com/settings?ref=email"">click here</a>.</p>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Equal("https://example.com/settings?ref=email", result);
@@ -403,9 +398,8 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
         // Should select the "Unsubscribe" link (priority 1 in anchor heuristics)
-        Assert.Equal("https://example.com/remove?id=2", result);
+        Assert.Equal("https://example.com/remove?id=2", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -421,9 +415,8 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
         // Should select the link with "unsubscribe" in href (priority 2)
-        Assert.Equal("https://example.com/unsubscribe?id=xyz", result);
+        Assert.Equal("https://example.com/unsubscribe?id=xyz", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -438,9 +431,8 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
         // Should select first matching anchor
-        Assert.Equal("https://example.com/preferences1", result);
+        Assert.Equal("https://example.com/preferences1", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -457,7 +449,7 @@ public class Phi3UnsubscribeLinkExtractorTests
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         // Should return null since no unsubscribe-related links found
-        Assert.Null(result);
+        Assert.Null(result.UnsubscribeLink);
     }
 
     [Fact]
@@ -473,9 +465,8 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        Assert.NotNull(result);
         // Should only consider HTTP/HTTPS links
-        Assert.Equal("https://example.com/unsubscribe", result);
+        Assert.Equal("https://example.com/unsubscribe", result.UnsubscribeLink);
     }
 
     [Fact]
@@ -489,7 +480,7 @@ public class Phi3UnsubscribeLinkExtractorTests
                          <a href=""https://example.com/leave"">click here</a> to complete the process.</p>
                          </body></html>";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Equal("https://example.com/leave", result);
@@ -509,12 +500,14 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
-        // Should successfully extract the unsubscribe link
-        Assert.NotNull(result);
-        Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
-        
-        // The implementation should have collected all 4 anchors for potential Phi3 processing
-        // (This is verified indirectly through the successful extraction)
+        // Should successfully extract the unsubscribe link and anchors
+        Assert.Contains("unsubscribe", result.UnsubscribeLink, StringComparison.OrdinalIgnoreCase);
+        Assert.Collection(result.AllAnchors,
+            anchor1 => Assert.Equal("https://example.com/home", anchor1),
+            anchor2 => Assert.Equal("https://example.com/shop", anchor2),
+            anchor3 => Assert.Equal("https://example.com/unsubscribe", anchor3),
+            anchor4 => Assert.Equal("https://example.com/contact", anchor4)
+        );
     }
 
     [Fact]
@@ -533,6 +526,12 @@ public class Phi3UnsubscribeLinkExtractorTests
 
         // Should return null when no unsubscribe-related anchors found
         // In a real scenario with Phi3 model, the model could process these anchors
-        Assert.Null(result);
+        Assert.Null(result.UnsubscribeLink);
+        Assert.Collection(result.AllAnchors,
+            anchor1 => Assert.Equal("https://example.com/home", anchor1),
+            anchor2 => Assert.Equal("https://example.com/products", anchor2),
+            anchor3 => Assert.Equal("https://example.com/blog", anchor3)
+        );
     }
 }
+

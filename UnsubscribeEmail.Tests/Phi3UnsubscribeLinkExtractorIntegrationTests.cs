@@ -36,7 +36,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
         
         var emailBody = "To unsubscribe, visit: https://example.com/unsubscribe";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("example.com", result);
@@ -64,7 +64,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             The Team
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -96,7 +96,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             </html>
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("mail.example.com", result);
@@ -121,7 +121,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             To unsubscribe from this mailing list, visit: https://lists.example.com/optout?user=test@example.com
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("optout", result, StringComparison.OrdinalIgnoreCase);
@@ -151,7 +151,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
 
         // Model might still extract the regular link, so we check if it contains unsubscribe-related terms
         // or if it returns null (which is also acceptable)
-        if (result != null)
+        if (result.UnsubscribeLink != null)
         {
             // If model returns something, verify it's trying to find unsubscribe patterns
             // The fallback regex should handle this correctly
@@ -159,7 +159,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
         }
         else
         {
-            Assert.Null(result);
+            Assert.Null(result.UnsubscribeLink);
         }
     }
 
@@ -178,7 +178,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             Manage your email preferences at: https://settings.example.com/preferences
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("preferences", result, StringComparison.OrdinalIgnoreCase);
@@ -203,7 +203,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             Choose the option that works best for you.
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         // Should return one of the unsubscribe-related links
@@ -219,7 +219,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
         
         var emailBody = "Unsubscribe: https://example.com/unsubscribe";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe", result, StringComparison.OrdinalIgnoreCase);
@@ -263,7 +263,7 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             </html>
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         Assert.Contains("unsubscribe.example.com", result);
@@ -299,10 +299,11 @@ public class Phi3UnsubscribeLinkExtractorIntegrationTests
             </html>
         ";
 
-        var result = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
+        var (result, anchors) = await extractor.ExtractUnsubscribeLinkAsync(emailBody);
 
         Assert.NotNull(result);
         // Should identify the "stop-emails" link based on surrounding context
         Assert.Contains("stop-emails", result, StringComparison.OrdinalIgnoreCase);
     }
 }
+

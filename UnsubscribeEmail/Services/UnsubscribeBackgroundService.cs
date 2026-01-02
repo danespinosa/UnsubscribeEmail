@@ -22,7 +22,7 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
         _logger = logger;
     }
 
-    public async Task<string> StartProcessingAsync(string userId, string accessToken, int daysBack = 365)
+    public string StartProcessing(string userId, string accessToken, int daysBack = 365)
     {
         var jobId = Guid.NewGuid().ToString();
         var status = new ProcessingStatus
@@ -99,6 +99,7 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
 
                 string? unsubscribeLink = null;
                 string recipientEmail = "";
+                List<string>? allAnchors = null;
 
                 // Process emails from this sender until we find an unsubscribe link
                 foreach (var email in senderGroup.OrderByDescending(e => e.Date))
@@ -111,20 +112,28 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
                         recipientEmail = email.To;
                     }
 
-                    unsubscribeLink = await linkExtractor.ExtractUnsubscribeLinkAsync(email.Body);
-
-                    if (!string.IsNullOrEmpty(unsubscribeLink))
+                    var (link, anchors) = await linkExtractor.ExtractUnsubscribeLinkAsync(email.Body);
+                    
+                    if (!string.IsNullOrEmpty(link))
                     {
-                        _logger.LogInformation($"Found unsubscribe link for {senderEmail}: {unsubscribeLink}");
+                        _logger.LogInformation($"Found unsubscribe link for {senderEmail}: {link}");
+                        unsubscribeLink = link;
                         foundAnySenderLinks = true;
                         break;
+                    }
+                    
+                    // Store anchors from the most recent email if no unsubscribe link found yet
+                    if (allAnchors == null && anchors != null && anchors.Count > 0)
+                    {
+                        allAnchors = anchors;
                     }
                 }
 
                 if (!foundAnySenderLinks)
                 {
                     _logger.LogInformation($"No unsubscribe link found for {senderEmail}");
-                    await SaveFailedEmailHtmlAsync(senderGroup.First().Body, senderEmail);
+                    _logger.LogInformation($"Extracted {allAnchors?.Count ?? 0} anchor links for {senderEmail}");
+                    await SaveFailedEmailHtmlAsync(senderGroup.OrderByDescending(e => e.Date).First().Body, senderEmail);
                 }
 
                 var senderInfo = new SenderUnsubscribeInfo
@@ -132,7 +141,8 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
                     SenderEmail = senderEmail,
                     RecipientEmail = recipientEmail,
                     UnsubscribeLink = unsubscribeLink,
-                    LastChecked = DateTime.Now
+                    LastChecked = DateTime.Now,
+                    AllAnchors = allAnchors
                 };
 
                 status.Results.Add(senderInfo);
@@ -196,7 +206,8 @@ public class UnsubscribeBackgroundService : IUnsubscribeBackgroundService
             senderEmail = senderInfo.SenderEmail,
             recipientEmail = senderInfo.RecipientEmail,
             unsubscribeLink = senderInfo.UnsubscribeLink,
-            lastChecked = senderInfo.LastChecked.ToString("yyyy-MM-dd HH:mm:ss")
+            lastChecked = senderInfo.LastChecked.ToString("yyyy-MM-dd HH:mm:ss"),
+            allAnchors = senderInfo.AllAnchors
         });
     }
 

@@ -5,7 +5,7 @@ namespace UnsubscribeEmail.Services;
 
 public interface IUnsubscribeLinkExtractor
 {
-    Task<string?> ExtractUnsubscribeLinkAsync(string emailBody);
+    Task<(string? UnsubscribeLink, List<string> AllAnchors)> ExtractUnsubscribeLinkAsync(string emailBody);
 }
 
 /// <summary>
@@ -200,7 +200,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
     /// 
     /// All URLs are validated before returning to ensure they are well-formed.
     /// </remarks>
-    public async Task<string?> ExtractUnsubscribeLinkAsync(string emailBody)
+    public async Task<(string? UnsubscribeLink, List<string> AllAnchors)> ExtractUnsubscribeLinkAsync(string emailBody)
     {
         // Step 1: Try anchor-based heuristics first (comprehensive detection)
         _logger.LogInformation("Attempting anchor-based heuristics...");
@@ -209,7 +209,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         if (!string.IsNullOrEmpty(anchorLink) && IsValidUrl(anchorLink))
         {
             _logger.LogInformation($"Anchor-based heuristic extraction successful: {anchorLink}");
-            return anchorLink;
+            return (anchorLink, GetUniqueUrls(allAnchors));
         }
         else
         {
@@ -225,7 +225,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             if (IsValidUrl(regexLink))
             {
                 _logger.LogInformation($"Regex extraction successful: {regexLink}");
-                return regexLink;
+                return (regexLink, GetUniqueUrls(allAnchors));
             }
             else
             {
@@ -244,7 +244,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
         if (_model == null || _tokenizer == null)
         {
             _logger.LogWarning("Phi3 model not available, returning regex result or null");
-            return regexLink; // May be null or malformed, but it's the best we have
+            return (regexLink, GetUniqueUrls(allAnchors)); // May be null or malformed, but it's the best we have
         }
 
         try
@@ -254,10 +254,10 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             if (allAnchors.Count > 0)
             {
                 _logger.LogInformation($"Processing {allAnchors.Count} anchor(s) with Phi3 model...");
-                var link = await ExtractFromAnchorsWithModelAsync(allAnchors);
+                var link = ExtractFromAnchorsWithModelAsync(allAnchors);
                 if (!string.IsNullOrEmpty(link) && IsValidUrl(link))
                 {
-                    return link;
+                    return (link, GetUniqueUrls(allAnchors));
                 }
             }
 
@@ -268,7 +268,7 @@ public class Phi3UnsubscribeLinkExtractor : IUnsubscribeLinkExtractor
             if (contextSnippets.Count == 0)
             {
                 _logger.LogInformation("No unsubscribe context found for model processing");
-                return regexLink;
+                return (regexLink, GetUniqueUrls(allAnchors));
             }
 
             _logger.LogInformation($"Processing {contextSnippets.Count} context(s) with Phi3 model...");
@@ -330,7 +330,7 @@ Email HTML to parse:
                     if (IsValidUrl(link))
                     {
                         _logger.LogInformation($"Phi3 model extraction successful: {link}");
-                        return link;
+                        return (link, GetUniqueUrls(allAnchors));
                     }
                     else
                     {
@@ -345,19 +345,19 @@ Email HTML to parse:
 
             // Fall back to regex result if model didn't find a valid URL in any context
             _logger.LogInformation("No valid URL found in any context, falling back to regex result");
-            return regexLink;
+            return (regexLink, GetUniqueUrls(allAnchors));
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error using Phi3 model for extraction, falling back to regex");
-            return regexLink;
+            return (regexLink, GetUniqueUrls(allAnchors));
         }
     }
 
     /// <summary>
     /// Processes a list of anchor candidates with the Phi3 model to select the most likely unsubscribe link.
     /// </summary>
-    private async Task<string?> ExtractFromAnchorsWithModelAsync(List<AnchorCandidate> anchors)
+    private string? ExtractFromAnchorsWithModelAsync(List<AnchorCandidate> anchors)
     {
         if (_model == null || _tokenizer == null)
         {
@@ -564,7 +564,7 @@ Selected unsubscribe URL:";
         return contexts;
     }
 
-    private string FindNearestAnchorTag(string html, int keywordPosition)
+    private string? FindNearestAnchorTag(string html, int keywordPosition)
     {
         const int searchRadius = 2000; // Search within 500 chars before and after keyword
 
@@ -602,46 +602,6 @@ Selected unsubscribe URL:";
         }
 
         return null;
-    }
-
-    private string? ExtractUnsubscribeContext(string emailBody)
-    {
-        // Search for multiple keywords related to unsubscribing
-        int bestIndex = -1;
-        string? foundKeyword = null;
-
-        // Find the first occurrence of any keyword
-        foreach (var keyword in UnsubscribeKeywords)
-        {
-            var index = emailBody.IndexOf(keyword, StringComparison.OrdinalIgnoreCase);
-            if (index != -1 && (bestIndex == -1 || index < bestIndex))
-            {
-                bestIndex = index;
-                foundKeyword = keyword;
-            }
-        }
-
-        if (bestIndex == -1 || foundKeyword == null)
-        {
-            // No keywords found, return null to trigger fallback
-            return null;
-        }
-
-        // Calculate positions - we need more context AFTER the keyword
-        // because often the link comes after phrases like "To unsubscribe, please click here"
-        // Take 200 chars before and 1000 chars after the start of the keyword
-        var startPos = Math.Max(0, bestIndex - 200);
-
-        // End position: include more content after to capture links that come after the keyword
-        var endPos = Math.Min(emailBody.Length, bestIndex + foundKeyword.Length + 1000);
-
-        // Extract the context snippet
-        var length = endPos - startPos;
-        var context = emailBody.Substring(startPos, length);
-
-        _logger.LogInformation($"Extracted context snippet (length: {context.Length}) starting at position {startPos}");
-
-        return context;
     }
 
     private string? ExtractUnsubscribeLinkFallback(string emailBody)
@@ -975,5 +935,20 @@ Selected unsubscribe URL:";
         }
 
         return null;
+    }
+
+    private List<string> GetUniqueUrls(List<AnchorCandidate> anchors)
+    {
+        var urls = new List<string>();
+        
+        foreach (var anchor in anchors)
+        {
+            if (IsValidUrl(anchor.Href) && !urls.Contains(anchor.Href))
+            {
+                urls.Add(anchor.Href);
+            }
+        }
+        
+        return urls;
     }
 }

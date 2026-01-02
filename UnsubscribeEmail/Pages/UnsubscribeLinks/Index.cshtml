@@ -62,13 +62,25 @@
         <div id="resultsTable" style="display: none;">
             <hr class="my-4">
             <h4 class="mb-3">Results</h4>
-            <p class="lead">Found <span id="totalSenders">0</span> sender(s).</p>
+            
+            <div class="mb-3">
+                <label for="filterSelect" class="form-label fw-bold">Filter by:</label>
+                <select class="form-select" id="filterSelect" style="max-width: 300px;">
+                    <option value="all">All Senders</option>
+                    <option value="withLink">With Unsubscribe Link</option>
+                    <option value="withoutLink">Without Unsubscribe Link</option>
+                </select>
+            </div>
+            
+            <p class="lead">
+                Showing <span id="visibleSenders">0</span> of <span id="totalSenders">0</span> sender(s).
+            </p>
             
             <div class="table-responsive">
                 <table class="table table-striped table-hover">
                     <thead class="table-dark">
                         <tr>
-                            <th scope="col">#</th>
+                            <th scope="col" style="width: 50px;">#</th>
                             <th scope="col">Sender Email</th>
                             <th scope="col">Recipient Email</th>
                             <th scope="col">Unsubscribe Link</th>
@@ -117,35 +129,126 @@
             senderCount++;
             const tbody = document.getElementById('resultsBody');
             const row = tbody.insertRow(0); // Insert at top
+            row.setAttribute('data-has-link', sender.unsubscribeLink ? 'true' : 'false');
+            row.setAttribute('data-row-id', `sender-${senderCount}`);
             
             const recipientEmail = sender.recipientEmail || 'Unknown';
             const displayRecipient = recipientEmail.length > 24 
                 ? recipientEmail.substring(0, 24) + '...' 
                 : recipientEmail;
             
+            let linkCell = '';
+            if (sender.unsubscribeLink) {
+                linkCell = `<a href="${sender.unsubscribeLink}" target="_blank" class="btn btn-sm btn-primary">Unsubscribe</a>
+                            <small class="text-muted d-block mt-1">${sender.unsubscribeLink}</small>`;
+            } else {
+                // Check if we have anchor links
+                const hasAnchors = sender.allAnchors && sender.allAnchors.length > 0;
+                if (hasAnchors) {
+                    linkCell = `<span class="text-muted">Not found</span>
+                                <button type="button" class="btn btn-sm btn-outline-info ms-2" onclick="toggleAnchors('sender-${senderCount}')">
+                                    <i class="bi bi-plus-circle"></i> Show ${sender.allAnchors.length} Link(s)
+                                </button>`;
+                } else {
+                    linkCell = '<span class="text-muted">Not found</span>';
+                }
+            }
+            
             row.innerHTML = `
                 <th scope="row">${senderCount}</th>
                 <td>${sender.senderEmail}</td>
                 <td><span class="badge bg-secondary" title="${recipientEmail}">${displayRecipient}</span></td>
-                <td>
-                    ${sender.unsubscribeLink 
-                        ? `<a href="${sender.unsubscribeLink}" target="_blank" class="btn btn-sm btn-primary">Unsubscribe</a>
-                           <small class="text-muted d-block mt-1">${sender.unsubscribeLink}</small>`
-                        : '<span class="text-muted">Not found</span>'}
-                </td>
+                <td>${linkCell}</td>
                 <td><small>${sender.lastChecked}</small></td>
             `;
+            
+            // If there are anchor links, create a hidden detail row
+            if (!sender.unsubscribeLink && sender.allAnchors && sender.allAnchors.length > 0) {
+                const detailRow = tbody.insertRow(1);
+                detailRow.id = `detail-sender-${senderCount}`;
+                detailRow.style.display = 'none';
+                detailRow.className = 'table-secondary';
+                
+                let anchorsHtml = '<div class="p-3"><strong>All links found in email:</strong><ul class="mt-2 mb-0">';
+                sender.allAnchors.forEach(anchor => {
+                    anchorsHtml += `<li><a href="${anchor}" target="_blank">${anchor}</a></li>`;
+                });
+                anchorsHtml += '</ul></div>';
+                
+                detailRow.innerHTML = `<td colspan="5">${anchorsHtml}</td>`;
+            }
             
             if (sender.unsubscribeLink) {
                 foundLinksCount++;
             }
             
-            document.getElementById('totalSenders').textContent = senderCount;
-            document.getElementById('summaryTotal').textContent = senderCount;
-            document.getElementById('foundLinks').textContent = foundLinksCount;
+            updateCounts();
             
             // Show results table
             document.getElementById('resultsTable').style.display = 'block';
+        });
+
+        function toggleAnchors(rowId) {
+            const detailRow = document.getElementById(`detail-${rowId}`);
+            const button = document.querySelector(`[onclick="toggleAnchors('${rowId}')"]`);
+            
+            if (detailRow.style.display === 'none') {
+                detailRow.style.display = 'table-row';
+                button.innerHTML = '<i class="bi bi-dash-circle"></i> Hide Links';
+            } else {
+                detailRow.style.display = 'none';
+                const linkCount = detailRow.querySelectorAll('li').length;
+                button.innerHTML = `<i class="bi bi-plus-circle"></i> Show ${linkCount} Link(s)`;
+            }
+        }
+
+        function updateCounts() {
+            const allRows = document.querySelectorAll('#resultsBody tr[data-row-id]');
+            const visibleRows = Array.from(allRows).filter(row => row.style.display !== 'none');
+            
+            document.getElementById('totalSenders').textContent = senderCount;
+            document.getElementById('visibleSenders').textContent = visibleRows.length;
+            document.getElementById('summaryTotal').textContent = senderCount;
+            document.getElementById('foundLinks').textContent = foundLinksCount;
+        }
+
+        function applyFilter() {
+            const filterValue = document.getElementById('filterSelect').value;
+            const allRows = document.querySelectorAll('#resultsBody tr[data-row-id]');
+            
+            allRows.forEach(row => {
+                const hasLink = row.getAttribute('data-has-link') === 'true';
+                const rowId = row.getAttribute('data-row-id');
+                const detailRow = document.getElementById(`detail-${rowId}`);
+                
+                let shouldShow = false;
+                if (filterValue === 'all') {
+                    shouldShow = true;
+                } else if (filterValue === 'withLink') {
+                    shouldShow = hasLink;
+                } else if (filterValue === 'withoutLink') {
+                    shouldShow = !hasLink;
+                }
+                
+                row.style.display = shouldShow ? '' : 'none';
+                
+                // Also hide detail row if parent is hidden
+                if (detailRow) {
+                    if (!shouldShow) {
+                        detailRow.style.display = 'none';
+                    }
+                }
+            });
+            
+            updateCounts();
+        }
+
+        // Add event listener for filter
+        document.addEventListener('DOMContentLoaded', function() {
+            const filterSelect = document.getElementById('filterSelect');
+            if (filterSelect) {
+                filterSelect.addEventListener('change', applyFilter);
+            }
         });
 
         connection.on("ProcessingComplete", function (data) {

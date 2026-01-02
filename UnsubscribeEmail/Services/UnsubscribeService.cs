@@ -55,10 +55,11 @@ public class UnsubscribeService : IUnsubscribeService
             string? unsubscribeLink = null;
             foreach (var email in senderGroup.OrderByDescending(e => e.Date))
             {
-                unsubscribeLink = await _linkExtractor.ExtractUnsubscribeLinkAsync(email.Body);
+                var (link, anchors) = await _linkExtractor.ExtractUnsubscribeLinkAsync(email.Body);
                 
-                if (!string.IsNullOrEmpty(unsubscribeLink))
+                if (!string.IsNullOrEmpty(link))
                 {
+                    unsubscribeLink = link;
                     _logger.LogInformation($"Found unsubscribe link for {senderEmail}: {unsubscribeLink}");
                     break;
                 }

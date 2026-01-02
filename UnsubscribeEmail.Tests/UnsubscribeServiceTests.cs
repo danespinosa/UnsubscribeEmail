@@ -43,7 +43,7 @@ public class UnsubscribeServiceTests
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync((null, []));
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
 
@@ -70,7 +70,7 @@ public class UnsubscribeServiceTests
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
-            .ReturnsAsync("https://example.com/unsubscribe");
+            .ReturnsAsync(("https://example.com/unsubscribe", new List<string>()));
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
 
@@ -116,8 +116,8 @@ public class UnsubscribeServiceTests
             {
                 callCount++;
                 if (body.Contains("https://example.com/unsub"))
-                    return "https://example.com/unsub";
-                return null;
+                    return ("https://example.com/unsub", new List<string>());
+                return (null, new List<string>());
             });
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
@@ -160,13 +160,13 @@ public class UnsubscribeServiceTests
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.Is<string>(s => s.Contains("example1.com"))))
-            .ReturnsAsync("https://example1.com/unsub");
+            .ReturnsAsync(("https://example1.com/unsub", new List<string>()));
         
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.Is<string>(s => s.Contains("example2.com"))))
-            .ReturnsAsync("https://example2.com/unsub");
+            .ReturnsAsync(("https://example2.com/unsub", new List<string>()));
         
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.Is<string>(s => !s.Contains("example1.com") && !s.Contains("example2.com"))))
-            .ReturnsAsync((string?)null);
+            .ReturnsAsync((null, []));
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
 
@@ -194,7 +194,7 @@ public class UnsubscribeServiceTests
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
-            .ReturnsAsync("https://example.com/unsub");
+            .ReturnsAsync(("https://example.com/unsub", new List<string>()));
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
 
@@ -220,7 +220,7 @@ public class UnsubscribeServiceTests
             .ReturnsAsync(emails);
 
         _mockLinkExtractor.Setup(x => x.ExtractUnsubscribeLinkAsync(It.IsAny<string>()))
-            .ReturnsAsync("https://example.com/unsub");
+            .ReturnsAsync(("https://example.com/unsub", new List<string>()));
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
 
@@ -260,10 +260,10 @@ public class UnsubscribeServiceTests
                     firstBodyProcessed = body;
                 
                 if (body.Contains("https://recent.com/unsub"))
-                    return "https://recent.com/unsub";
+                    return ("https://recent.com/unsub", new List<string>());
                 if (body.Contains("https://old.com/unsub"))
-                    return "https://old.com/unsub";
-                return null;
+                    return ("https://old.com/unsub", new List<string>());
+                return (null, new List<string>());
             });
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
@@ -273,3 +273,4 @@ public class UnsubscribeServiceTests
         Assert.Contains("Recent link", firstBodyProcessed);
     }
 }
+
