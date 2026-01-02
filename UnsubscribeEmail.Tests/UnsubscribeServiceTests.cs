@@ -24,7 +24,7 @@ public class UnsubscribeServiceTests
     public async Task GetSenderUnsubscribeLinksAsync_WithNoEmails_ReturnsEmptyList()
     {
         _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
-            .ReturnsAsync(new List<EmailInfo>());
+            .ReturnsAsync(new List<EmailMessage>());
 
         var result = await _service.GetSenderUnsubscribeLinksAsync();
 
@@ -34,9 +34,9 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithEmailsButNoUnsubscribeLinks_ReturnsListWithNullLinks()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo { From = "sender@example.com", Subject = "Test", Body = "No link here", Date = DateTime.Now }
+            new EmailMessage { From = "sender@example.com", Subject = "Test", Body = "No link here", Date = DateTime.Now }
         };
 
         _mockEmailService.Setup(x => x.GetEmailsFromDateRangeAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<Action<int, int>>()))
@@ -55,9 +55,9 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithUnsubscribeLink_ReturnsCorrectLink()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "newsletter@example.com", 
                 Subject = "Newsletter", 
@@ -82,23 +82,23 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithMultipleEmailsFromSameSender_ProcessesUntilLinkFound()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender@example.com", 
                 Subject = "Email 1", 
                 Body = "No link", 
                 Date = DateTime.Now.AddDays(-2) 
             },
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender@example.com", 
                 Subject = "Email 2", 
                 Body = "Unsubscribe: https://example.com/unsub", 
                 Date = DateTime.Now.AddDays(-1) 
             },
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender@example.com", 
                 Subject = "Email 3", 
@@ -131,23 +131,23 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithMultipleSenders_ReturnsAllSenders()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender1@example.com", 
                 Subject = "Email 1", 
                 Body = "Unsubscribe: https://example1.com/unsub", 
                 Date = DateTime.Now 
             },
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender2@example.com", 
                 Subject = "Email 2", 
                 Body = "Unsubscribe: https://example2.com/unsub", 
                 Date = DateTime.Now 
             },
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender3@example.com", 
                 Subject = "Email 3", 
@@ -179,9 +179,9 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithEmailInAngleBrackets_ExtractsEmailCorrectly()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "John Doe <john@example.com>", 
                 Subject = "Test", 
@@ -205,9 +205,9 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_WithMixedCaseEmail_NormalizesToLowercase()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "John@Example.COM", 
                 Subject = "Test", 
@@ -231,16 +231,16 @@ public class UnsubscribeServiceTests
     [Fact]
     public async Task GetSenderUnsubscribeLinksAsync_ProcessesMostRecentEmailsFirst()
     {
-        var emails = new List<EmailInfo>
+        var emails = new List<EmailMessage>
         {
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender@example.com", 
                 Subject = "Old", 
                 Body = "Old link: https://old.com/unsub", 
                 Date = DateTime.Now.AddDays(-10) 
             },
-            new EmailInfo 
+            new EmailMessage 
             { 
                 From = "sender@example.com", 
                 Subject = "Recent", 

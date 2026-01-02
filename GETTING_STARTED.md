@@ -125,10 +125,10 @@ The regex-based fallback looks for common unsubscribe link patterns:
 UnsubscribeEmail/
 ├── Models/                    # Data models
 │   ├── EmailConfiguration.cs  # Email settings
-│   ├── EmailInfo.cs           # Email representation
+│   ├── EmailMessage.cs        # Email representation
 │   └── SenderUnsubscribeInfo.cs # Sender and link mapping
 ├── Services/                  # Business logic
-│   ├── EmailService.cs        # IMAP email fetching
+│   ├── EmailManagementBackgroundService.cs # Microsoft Graph email operations
 │   ├── Phi3UnsubscribeLinkExtractor.cs # AI-powered extraction
 │   └── UnsubscribeService.cs  # Orchestration and caching
 ├── Pages/                     # Razor Pages

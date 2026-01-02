@@ -484,9 +484,9 @@ namespace UnsubscribeEmail.Services
             }
         }
 
-        public async Task<List<EmailInfo>> GetEmailsFromDateRangeAsync(int daysBack = 365, string? accessToken = null, Action<int, int>? progressCallback = null)
+        public async Task<List<EmailMessage>> GetEmailsFromDateRangeAsync(int daysBack = 365, string? accessToken = null, Action<int, int>? progressCallback = null)
         {
-            var emails = new List<EmailInfo>();
+            var emails = new List<EmailMessage>();
 
             try
             {
@@ -576,7 +576,7 @@ namespace UnsubscribeEmail.Services
                                 date = receivedDt.GetDateTime();
                             }
 
-                            emails.Add(new EmailInfo
+                            emails.Add(new EmailMessage
                             {
                                 From = from,
                                 To = to,
@@ -611,17 +611,6 @@ namespace UnsubscribeEmail.Services
             }
 
             return emails;
-        }
-
-        public class EmailMessage
-        {
-            public string Id { get; set; } = string.Empty;
-            public string Subject { get; set; } = string.Empty;
-            public string SenderName { get; set; } = string.Empty;
-            public string SenderEmail { get; set; } = string.Empty;
-            public string RecipientEmail { get; set; } = string.Empty;
-            public DateTime ReceivedDateTime { get; set; }
-            public bool IsRead { get; set; }
         }
     }
 }

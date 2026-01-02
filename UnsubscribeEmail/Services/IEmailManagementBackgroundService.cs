@@ -1,5 +1,4 @@
 using UnsubscribeEmail.Models;
-using static UnsubscribeEmail.Services.EmailManagementBackgroundService;
 
 namespace UnsubscribeEmail.Services
 {
@@ -9,7 +8,7 @@ namespace UnsubscribeEmail.Services
         Task<EmailActionResult> MarkEmailsAsReadAsync(string senderEmail, int daysBack, string accessToken);
         Task<EmailActionResult> DeleteEmailsAsync(string senderEmail, int daysBack, string accessToken);
         Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, string connectionId, string accessToken);
-        Task<List<EmailInfo>> GetEmailsFromDateRangeAsync(int daysBack = 365, string? accessToken = null, Action<int, int>? progressCallback = null);
+        Task<List<EmailMessage>> GetEmailsFromDateRangeAsync(int daysBack = 365, string? accessToken = null, Action<int, int>? progressCallback = null);
     }
 
     public class EmailActionResult
