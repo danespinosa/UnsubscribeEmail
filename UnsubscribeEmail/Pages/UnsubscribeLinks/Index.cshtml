@@ -31,7 +31,7 @@
     </div>
     
     <div id="resultsSection">
-        <div id="initialState" class="text-center mb-4">
+        <div id="controlsSection" class="text-center mb-4">
             <h5 class="mb-3">Select how far back to search</h5>
             <div class="btn-group mb-3" role="group" aria-label="Days selection">
                 <input type="radio" class="btn-check" name="daysBack" id="days1" value="1" autocomplete="off">
@@ -56,11 +56,13 @@
             <button type="button" id="startButton" class="btn btn-primary btn-lg">
                 <i class="bi bi-play-fill"></i> Start Processing Emails
             </button>
-            <p class="text-muted mt-3">Click to fetch and analyze your emails for unsubscribe links</p>
+            <p class="text-muted mt-3" id="helperText">Click to fetch and analyze your emails for unsubscribe links</p>
         </div>
         
         <div id="resultsTable" style="display: none;">
-            <p class="lead">Found <span id="totalSenders">0</span> sender(s) from emails in the current year.</p>
+            <hr class="my-4">
+            <h4 class="mb-3">Results</h4>
+            <p class="lead">Found <span id="totalSenders">0</span> sender(s).</p>
             
             <div class="table-responsive">
                 <table class="table table-striped table-hover">
@@ -151,6 +153,12 @@
                 `✓ Complete! Processed ${data.totalSenders} senders in ${Math.round(data.duration)} seconds.`;
             document.getElementById('progressBar').classList.remove('progress-bar-animated');
             document.getElementById('progressBar').classList.add('bg-success');
+            
+            // Re-enable the button and update text
+            const startButton = document.getElementById('startButton');
+            startButton.disabled = false;
+            startButton.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Process More Emails';
+            document.getElementById('helperText').textContent = 'Select a different time range and process again';
         });
 
         connection.start().then(function () {
@@ -166,8 +174,31 @@
                 const selectedDays = document.querySelector('input[name="daysBack"]:checked');
                 const daysBack = selectedDays ? parseInt(selectedDays.value) : 365;
                 
-                document.getElementById('initialState').style.display = 'none';
+                // Disable button during processing
+                const startButton = document.getElementById('startButton');
+                startButton.disabled = true;
+                startButton.innerHTML = '<i class="bi bi-hourglass-split"></i> Processing...';
+                
+                // Show progress section
                 document.getElementById('progressSection').style.display = 'block';
+                
+                // Reset progress bar
+                const progressBar = document.getElementById('progressBar');
+                progressBar.style.width = '0%';
+                progressBar.setAttribute('aria-valuenow', 0);
+                progressBar.textContent = '0%';
+                progressBar.classList.add('progress-bar-animated');
+                progressBar.classList.remove('bg-success');
+                
+                // Reset counters for new run
+                senderCount = 0;
+                foundLinksCount = 0;
+                
+                // Clear previous results
+                document.getElementById('resultsBody').innerHTML = '';
+                document.getElementById('totalSenders').textContent = '0';
+                document.getElementById('summaryTotal').textContent = '0';
+                document.getElementById('foundLinks').textContent = '0';
                 
                 const token = document.querySelector('input[name="__RequestVerificationToken"]');
                 const headers = {
@@ -195,12 +226,15 @@
                         return;
                     }
                     showError(result.error || 'Failed to start processing');
-                    document.getElementById('initialState').style.display = 'block';
+                    startButton.disabled = false;
+                    startButton.innerHTML = '<i class="bi bi-play-fill"></i> Start Processing Emails';
                     document.getElementById('progressSection').style.display = 'none';
                 }
             } catch (error) {
                 showError('Error starting processing: ' + error.message);
-                document.getElementById('initialState').style.display = 'block';
+                const startButton = document.getElementById('startButton');
+                startButton.disabled = false;
+                startButton.innerHTML = '<i class="bi bi-play-fill"></i> Start Processing Emails';
                 document.getElementById('progressSection').style.display = 'none';
             }
         });
