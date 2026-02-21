@@ -27,6 +27,14 @@ The LLM agent then inspects the HTML to find unsubscribe links and presents them
 - .NET 10.0 SDK
 - Azure CLI (`az`) if you want to auto-create an AAD app
 
+### Build the DLL
+
+```bash
+dotnet publish UnsubscribeEmail.McpServer -c Release -o ./publish
+```
+
+This produces `publish/UnsubscribeEmail.McpServer.dll` which can be distributed and run with `dotnet UnsubscribeEmail.McpServer.dll`.
+
 ### Configuration for VS Code (GitHub Copilot)
 
 Add to your VS Code `settings.json` or `.vscode/mcp.json`:
@@ -37,7 +45,7 @@ Add to your VS Code `settings.json` or `.vscode/mcp.json`:
     "unsubscribe-email": {
       "type": "stdio",
       "command": "dotnet",
-      "args": ["run", "--project", "C:/path/to/UnsubscribeEmail.McpServer"]
+      "args": ["C:/path/to/UnsubscribeEmail.McpServer.dll"]
     }
   }
 }
@@ -52,7 +60,7 @@ Add to `claude_desktop_config.json`:
   "mcpServers": {
     "unsubscribe-email": {
       "command": "dotnet",
-      "args": ["run", "--project", "C:/path/to/UnsubscribeEmail.McpServer"]
+      "args": ["C:/path/to/UnsubscribeEmail.McpServer.dll"]
     }
   }
 }
