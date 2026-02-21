@@ -420,3 +420,7 @@ FodyWeavers.xsd
 /UnsubscribeEmail/appsettings.Development.json
 /UnsubscribeEmail/appsettings.Development.json
 /UnsubscribeEmail/appsettings.Development.json
+
+# Publish output
+publish/
+publish2/
