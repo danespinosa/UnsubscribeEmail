@@ -56,10 +56,38 @@ public class AuthService
     {
         var appName = "UnsubscribeEmail-MCP";
 
-        // Try to find an existing app registration with this display name
-        var existingAppResult = await RunAzCliAsync($"ad app list --display-name \"{appName}\" --query \"[0].appId\" -o tsv");
-        var clientId = existingAppResult.Trim();
+        // Try to find an existing app registration with this display name.
+        // Display names are not unique in Entra ID, so we must handle 0/1/>1 matches explicitly.
+        var existingAppResult = await RunAzCliAsync($"ad app list --display-name \"{appName}\"");
+        string? clientId = null;
 
+        if (!string.IsNullOrWhiteSpace(existingAppResult))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(existingAppResult);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    var apps = doc.RootElement;
+                    var count = apps.GetArrayLength();
+
+                    if (count == 1)
+                    {
+                        clientId = apps[0].GetProperty("appId").GetString();
+                    }
+                    else if (count > 1)
+                    {
+                        throw new InvalidOperationException(
+                            $"Multiple AAD app registrations found with display name '{appName}'. " +
+                            "Please delete or rename duplicates, or configure the application manually.");
+                    }
+                }
+            }
+            catch (JsonException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse Azure CLI output when listing AAD apps for display name {AppName}. Proceeding as if no existing app was found.", appName);
+            }
+        }
         if (string.IsNullOrEmpty(clientId))
         {
             var createResult = await RunAzCliAsync($"ad app create --display-name \"{appName}\" --sign-in-audience AzureADandPersonalMicrosoftAccount --query appId -o tsv");
