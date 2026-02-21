@@ -33,6 +33,8 @@ public class ReadEmailsTool
 
             if (daysBack < 1)
                 daysBack = 1;
+            if (daysBack > 730)
+                daysBack = 730;
 
             var senders = await graphService.GetEmailsAggregatedBySenderAsync(daysBack);
 

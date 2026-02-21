@@ -16,7 +16,7 @@ public class GetEmailContentTool
         AuthService authService,
         GraphEmailService graphService,
         [Description("The sender email address to fetch emails from.")] string senderEmail,
-        [Description("Maximum number of emails to return. Defaults to 1.")] int maxEmails = 1,
+        [Description("Maximum number of emails to return. Defaults to 1. Value must be between 1 and 10.")] int maxEmails = 1,
         [Description("Optional: number of days back to limit the search. If not specified, searches all emails.")] int? daysBack = null)
     {
         try

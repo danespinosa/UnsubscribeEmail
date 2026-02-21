@@ -1,5 +1,8 @@
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Client;
 using UnsubscribeEmail.McpServer.Models;
@@ -12,6 +15,7 @@ namespace UnsubscribeEmail.McpServer.Services;
 public class AuthService
 {
     private readonly ILogger<AuthService> _logger;
+    private readonly HttpClient _httpClient = new();
     private AadConfiguration _config = new();
     private IPublicClientApplication? _msalClient;
     private AuthenticationResult? _authResult;
@@ -51,18 +55,31 @@ public class AuthService
 
     public async Task<string> CreateAadAppViaAzCliAsync(bool saveLocally = false)
     {
-        var appName = $"UnsubscribeEmail-MCP-{DateTime.UtcNow:yyyyMMddHHmmss}";
+        var appName = "UnsubscribeEmail-MCP";
 
-        // Create the app registration
-        var createResult = await RunAzCliAsync($"ad app create --display-name \"{appName}\" --sign-in-audience AzureADandPersonalMicrosoftAccount --query appId -o tsv");
-        var clientId = createResult.Trim();
+        // Try to find an existing app registration with this display name
+        var existingAppResult = await RunAzCliAsync($"ad app list --display-name \"{appName}\" --query \"[0].appId\" -o tsv");
+        var clientId = existingAppResult.Trim();
+
         if (string.IsNullOrEmpty(clientId))
-            throw new InvalidOperationException("Failed to create AAD app registration. Ensure Azure CLI is installed and you are logged in (run 'az login').");
+        {
+            var createResult = await RunAzCliAsync($"ad app create --display-name \"{appName}\" --sign-in-audience AzureADandPersonalMicrosoftAccount --query appId -o tsv");
+            clientId = createResult.Trim();
+            if (string.IsNullOrEmpty(clientId))
+                throw new InvalidOperationException("Failed to create AAD app registration. Ensure Azure CLI is installed and you are logged in (run 'az login').");
+
+            _logger.LogInformation("Created new AAD app registration: {ClientId}", clientId);
+        }
+        else
+        {
+            _logger.LogInformation("Reusing existing AAD app registration: {ClientId}", clientId);
+        }
+
+        // Validate clientId is a proper GUID before using in subsequent commands
+        if (!Guid.TryParse(clientId, out _))
+            throw new InvalidOperationException($"Invalid client ID format returned from Azure CLI: {clientId}");
 
         // Add Microsoft Graph delegated permissions
-        // User.Read: 00000003-0000-0000-c000-000000000000/e1fe6dd8-ba31-4d61-89e7-88639da4683d
-        // Mail.Read: 00000003-0000-0000-c000-000000000000/570282fd-fa5c-430d-a7fd-fc8dc98a9dca
-        // Mail.ReadWrite: 00000003-0000-0000-c000-000000000000/024d486e-b451-40bb-833d-3e66d98c5c73
         await RunAzCliAsync($"ad app permission add --id {clientId} --api 00000003-0000-0000-c000-000000000000 --api-permissions e1fe6dd8-ba31-4d61-89e7-88639da4683d=Scope 570282fd-fa5c-430d-a7fd-fc8dc98a9dca=Scope 024d486e-b451-40bb-833d-3e66d98c5c73=Scope");
 
         // Add redirect URI for interactive auth (localhost)
@@ -126,9 +143,8 @@ public class AuthService
 
     public HttpClient CreateAuthenticatedHttpClient()
     {
-        var client = new HttpClient();
-        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
-        return client;
+        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+        return _httpClient;
     }
 
     private void EnsureMsalClient()
@@ -174,11 +190,29 @@ public class AuthService
         {
             var dir = Path.GetDirectoryName(ConfigFilePath)!;
             Directory.CreateDirectory(dir);
+
+            string secretToStore;
+            bool isEncrypted = false;
+
+            if (OperatingSystem.IsWindows())
+            {
+                secretToStore = Convert.ToBase64String(
+                    ProtectedData.Protect(
+                        Encoding.UTF8.GetBytes(_config.ClientSecret),
+                        null, DataProtectionScope.CurrentUser));
+                isEncrypted = true;
+            }
+            else
+            {
+                secretToStore = _config.ClientSecret;
+            }
+
             var json = JsonSerializer.Serialize(new
             {
                 clientId = _config.ClientId,
                 tenantId = _config.TenantId,
-                clientSecret = _config.ClientSecret
+                clientSecret = secretToStore,
+                encrypted = isEncrypted
             }, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(ConfigFilePath, json);
             _logger.LogInformation("AAD configuration saved to {Path}", ConfigFilePath);
@@ -199,7 +233,21 @@ public class AuthService
             var doc = JsonSerializer.Deserialize<JsonElement>(json);
             var clientId = doc.GetProperty("clientId").GetString() ?? "";
             var tenantId = doc.GetProperty("tenantId").GetString() ?? "common";
-            var clientSecret = doc.GetProperty("clientSecret").GetString() ?? "";
+            var rawSecret = doc.GetProperty("clientSecret").GetString() ?? "";
+
+            // Decrypt if stored with DPAPI
+            string clientSecret;
+            if (doc.TryGetProperty("encrypted", out var enc) && enc.GetBoolean() && OperatingSystem.IsWindows())
+            {
+                clientSecret = Encoding.UTF8.GetString(
+                    ProtectedData.Unprotect(
+                        Convert.FromBase64String(rawSecret),
+                        null, DataProtectionScope.CurrentUser));
+            }
+            else
+            {
+                clientSecret = rawSecret;
+            }
 
             if (!string.IsNullOrEmpty(clientId) && !string.IsNullOrEmpty(clientSecret))
             {
