@@ -170,8 +170,9 @@ public class AuthService
 
     public HttpClient CreateAuthenticatedHttpClient()
     {
-        _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
-        return _httpClient;
+        var client = new HttpClient();
+        client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+        return client;
     }
 
     private void EnsureMsalClient()
