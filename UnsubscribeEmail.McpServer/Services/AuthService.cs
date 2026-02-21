@@ -2,7 +2,6 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Identity.Client;
 using UnsubscribeEmail.McpServer.Models;
