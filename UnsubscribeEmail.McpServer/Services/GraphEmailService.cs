@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using UnsubscribeEmail.McpServer.Models;
 
@@ -12,6 +13,8 @@ public class GraphEmailService
 {
     private readonly AuthService _authService;
     private readonly ILogger<GraphEmailService> _logger;
+
+    private static readonly Regex EmailRegex = new(@"^[^@\s]+@[^@\s]+\.[^@\s]+$", RegexOptions.Compiled);
 
     public GraphEmailService(AuthService authService, ILogger<GraphEmailService> logger)
     {
@@ -47,7 +50,10 @@ public class GraphEmailService
 
     public async Task<List<EmailMessage>> GetEmailsFromSenderAsync(string senderEmail, int maxEmails = 1, int? daysBack = null)
     {
-        using var httpClient = _authService.CreateAuthenticatedHttpClient();
+        if (!EmailRegex.IsMatch(senderEmail))
+            throw new ArgumentException($"Invalid email format: {senderEmail}", nameof(senderEmail));
+
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
 
         var deletedItemsFolderId = await GetFolderIdAsync(httpClient, "Deleted Items");
         var junkEmailFolderId = await GetFolderIdAsync(httpClient, "Junk Email");
@@ -88,7 +94,7 @@ public class GraphEmailService
     private async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, bool includeBody)
     {
         var emails = new List<EmailMessage>();
-        using var httpClient = _authService.CreateAuthenticatedHttpClient();
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
 
         var deletedItemsFolderId = await GetFolderIdAsync(httpClient, "Deleted Items");
         var junkEmailFolderId = await GetFolderIdAsync(httpClient, "Junk Email");
@@ -171,7 +177,7 @@ public class GraphEmailService
         return email;
     }
 
-    private static async Task<string?> GetFolderIdAsync(HttpClient httpClient, string folderName)
+    private async Task<string?> GetFolderIdAsync(HttpClient httpClient, string folderName)
     {
         try
         {
@@ -183,7 +189,10 @@ public class GraphEmailService
             if (data.TryGetProperty("value", out var folderValue) && folderValue.GetArrayLength() > 0)
                 return folderValue[0].GetProperty("id").GetString();
         }
-        catch { /* Folder not found is not fatal */ }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get folder ID for '{FolderName}'", folderName);
+        }
 
         return null;
     }
