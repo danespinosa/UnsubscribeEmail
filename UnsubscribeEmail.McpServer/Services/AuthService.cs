@@ -83,26 +83,17 @@ public class AuthService
 
         try
         {
-            // Try silent auth first (cached token)
+            // Clear all cached accounts so the user is always prompted to pick an account
             var accounts = await _msalClient!.GetAccountsAsync();
-            var account = accounts.FirstOrDefault();
-            if (account != null)
+            foreach (var cachedAccount in accounts)
             {
-                try
-                {
-                    _authResult = await _msalClient.AcquireTokenSilent(GraphScopes, account).ExecuteAsync();
-                    _logger.LogInformation("Acquired token silently for {User}", _authResult.Account.Username);
-                    return _authResult.Account.Username;
-                }
-                catch (MsalUiRequiredException)
-                {
-                    // Fall through to interactive
-                }
+                await _msalClient.RemoveAsync(cachedAccount);
             }
 
-            // Interactive browser login
+            // Always do interactive browser login with account selection
             _authResult = await _msalClient.AcquireTokenInteractive(GraphScopes)
                 .WithUseEmbeddedWebView(false)
+                .WithPrompt(Microsoft.Identity.Client.Prompt.SelectAccount)
                 .ExecuteAsync();
 
             _logger.LogInformation("Logged in as {User}", _authResult.Account.Username);
