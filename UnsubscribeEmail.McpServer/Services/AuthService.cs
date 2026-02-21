@@ -11,7 +11,7 @@ namespace UnsubscribeEmail.McpServer.Services;
 /// <summary>
 /// Manages AAD configuration and MSAL authentication for Microsoft Graph API access.
 /// </summary>
-public class AuthService
+public class AuthService : IDisposable
 {
     private readonly ILogger<AuthService> _logger;
     private readonly HttpClient _httpClient = new();
@@ -265,8 +265,13 @@ public class AuthService
 
             // Decrypt if stored with DPAPI
             string clientSecret;
-            if (doc.TryGetProperty("encrypted", out var enc) && enc.GetBoolean() && OperatingSystem.IsWindows())
+            if (doc.TryGetProperty("encrypted", out var enc) && enc.GetBoolean())
             {
+                if (!OperatingSystem.IsWindows())
+                    throw new InvalidOperationException(
+                        "The saved AAD configuration was encrypted with Windows DPAPI and cannot be decrypted on this OS. " +
+                        "Please re-run configure_aad_app with saveLocally=true on this platform.");
+
                 clientSecret = Encoding.UTF8.GetString(
                     ProtectedData.Unprotect(
                         Convert.FromBase64String(rawSecret),
@@ -292,5 +297,10 @@ public class AuthService
         {
             _logger.LogWarning(ex, "Failed to load saved AAD configuration");
         }
+    }
+
+    public void Dispose()
+    {
+        _httpClient.Dispose();
     }
 }
