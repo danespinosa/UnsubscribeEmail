@@ -17,17 +17,21 @@ public class AuthService
     private AuthenticationResult? _authResult;
 
     private static readonly string[] GraphScopes = ["User.Read", "Mail.Read", "Mail.ReadWrite"];
+    private static readonly string ConfigFilePath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".unsubscribe-email", "aad-config.json");
 
     public AuthService(ILogger<AuthService> logger)
     {
         _logger = logger;
+        TryLoadSavedConfig();
     }
 
     public bool IsConfigured => _config.IsConfigured;
     public bool IsAuthenticated => _authResult != null && _authResult.ExpiresOn > DateTimeOffset.UtcNow;
     public string? UserEmail => _authResult?.Account?.Username;
 
-    public void Configure(string clientId, string tenantId, string clientSecret)
+    public void Configure(string clientId, string tenantId, string clientSecret, bool saveLocally = false)
     {
         _config = new AadConfiguration
         {
@@ -38,11 +42,14 @@ public class AuthService
         _msalClient = null;
         _authResult = null;
         _logger.LogInformation("AAD configuration updated for client {ClientId}", clientId);
+
+        if (saveLocally)
+            SaveConfigToFile();
     }
 
     public AadConfiguration GetConfiguration() => _config;
 
-    public async Task<string> CreateAadAppViaAzCliAsync()
+    public async Task<string> CreateAadAppViaAzCliAsync(bool saveLocally = false)
     {
         var appName = $"UnsubscribeEmail-MCP-{DateTime.UtcNow:yyyyMMddHHmmss}";
 
@@ -69,7 +76,7 @@ public class AuthService
         var tenantResult = await RunAzCliAsync("account show --query tenantId -o tsv");
         var tenantId = tenantResult.Trim();
 
-        Configure(clientId, tenantId, clientSecret);
+        Configure(clientId, tenantId, clientSecret, saveLocally);
 
         return clientId;
     }
@@ -159,5 +166,55 @@ public class AuthService
             throw new InvalidOperationException($"Azure CLI command failed: {error}");
 
         return output;
+    }
+
+    private void SaveConfigToFile()
+    {
+        try
+        {
+            var dir = Path.GetDirectoryName(ConfigFilePath)!;
+            Directory.CreateDirectory(dir);
+            var json = JsonSerializer.Serialize(new
+            {
+                clientId = _config.ClientId,
+                tenantId = _config.TenantId,
+                clientSecret = _config.ClientSecret
+            }, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(ConfigFilePath, json);
+            _logger.LogInformation("AAD configuration saved to {Path}", ConfigFilePath);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save AAD configuration to file");
+        }
+    }
+
+    private void TryLoadSavedConfig()
+    {
+        try
+        {
+            if (!File.Exists(ConfigFilePath)) return;
+
+            var json = File.ReadAllText(ConfigFilePath);
+            var doc = JsonSerializer.Deserialize<JsonElement>(json);
+            var clientId = doc.GetProperty("clientId").GetString() ?? "";
+            var tenantId = doc.GetProperty("tenantId").GetString() ?? "common";
+            var clientSecret = doc.GetProperty("clientSecret").GetString() ?? "";
+
+            if (!string.IsNullOrEmpty(clientId) && !string.IsNullOrEmpty(clientSecret))
+            {
+                _config = new AadConfiguration
+                {
+                    ClientId = clientId,
+                    TenantId = tenantId,
+                    ClientSecret = clientSecret
+                };
+                _logger.LogInformation("Loaded saved AAD configuration for client {ClientId}", clientId);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to load saved AAD configuration");
+        }
     }
 }
