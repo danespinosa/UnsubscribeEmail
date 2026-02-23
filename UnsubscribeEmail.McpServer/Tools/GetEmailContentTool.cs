@@ -8,7 +8,7 @@ namespace UnsubscribeEmail.McpServer.Tools;
 [McpServerToolType]
 public class GetEmailContentTool
 {
-    private static readonly JsonSerializerOptions s_jsonOptions = new() { WriteIndented = false };
+    private static readonly JsonSerializerOptions DefaultJsonSerializerOptions = new() { WriteIndented = false };
 
     [McpServerTool(Name = "get_email_content"), Description(
         "Get the full HTML body content of emails from a specific sender. " +
@@ -59,7 +59,7 @@ public class GetEmailContentTool
                     e.IsRead,
                     htmlBody = e.Body
                 })
-            }, s_jsonOptions);
+            }, DefaultJsonSerializerOptions);
         }
         catch (Exception ex)
         {
