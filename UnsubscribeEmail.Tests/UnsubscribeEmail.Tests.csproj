@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\UnsubscribeEmail\UnsubscribeEmail.csproj" />
+    <ProjectReference Include="..\UnsubscribeEmail.McpServer\UnsubscribeEmail.McpServer.csproj" />
   </ItemGroup>
 
 </Project>

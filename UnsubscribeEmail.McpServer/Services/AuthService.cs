@@ -31,7 +31,7 @@ public class AuthService : IDisposable
     }
 
     public bool IsConfigured => _config.IsConfigured;
-    public bool IsAuthenticated => _authResult != null && _authResult.ExpiresOn > DateTimeOffset.UtcNow;
+    public virtual bool IsAuthenticated => _authResult != null && _authResult.ExpiresOn > DateTimeOffset.UtcNow;
     public string? UserEmail => _authResult?.Account?.Username;
 
     public void Configure(string clientId, string tenantId, string clientSecret, bool saveLocally = false)
@@ -168,7 +168,7 @@ public class AuthService : IDisposable
         return _authResult.AccessToken;
     }
 
-    public HttpClient CreateAuthenticatedHttpClient()
+    public virtual HttpClient CreateAuthenticatedHttpClient()
     {
         var client = new HttpClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
