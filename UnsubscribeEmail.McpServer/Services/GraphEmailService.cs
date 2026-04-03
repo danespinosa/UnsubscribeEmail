@@ -91,6 +91,125 @@ public class GraphEmailService
         return emails;
     }
 
+    public async Task<List<MarkAsReadResult>> MarkEmailsAsReadAsync(
+        string? senderEmail,
+        string? senderDomain,
+        bool unreadOnly,
+        bool dryRun,
+        int? daysBack)
+    {
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
+
+        var deletedItemsFolderId = await GetFolderIdAsync(httpClient, "Deleted Items");
+        var junkEmailFolderId = await GetFolderIdAsync(httpClient, "Junk Email");
+
+        // Build OData filter
+        var filters = new List<string> { "isDraft eq false" };
+
+        if (!string.IsNullOrEmpty(senderEmail))
+            filters.Add($"from/emailAddress/address eq '{senderEmail}'");
+
+        if (unreadOnly)
+            filters.Add("isRead eq false");
+
+        if (daysBack.HasValue)
+        {
+            var startDate = DateTime.UtcNow.AddDays(-daysBack.Value).ToString("yyyy-MM-ddTHH:mm:ssZ");
+            filters.Add($"receivedDateTime ge {startDate}");
+        }
+
+        var filter = string.Join(" and ", filters);
+        var select = "id,subject,from,receivedDateTime,isRead,parentFolderId";
+        var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select={select}&$top=100&$orderby=receivedDateTime desc";
+
+        var results = new List<MarkAsReadResult>();
+        var pageCount = 0;
+
+        while (!string.IsNullOrEmpty(url))
+        {
+            pageCount++;
+            _logger.LogInformation("Fetching page {Page} for mark-as-read", pageCount);
+
+            var response = await httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+            if (data.TryGetProperty("value", out var messagesArray))
+            {
+                foreach (var message in messagesArray.EnumerateArray())
+                {
+                    if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
+                        continue;
+
+                    var email = ParseEmailMessage(message, includeBody: false);
+
+                    // Client-side domain filter
+                    if (!string.IsNullOrEmpty(senderDomain))
+                    {
+                        var emailDomain = email.SenderEmail.Split('@').LastOrDefault() ?? "";
+                        if (!emailDomain.Equals(senderDomain, StringComparison.OrdinalIgnoreCase))
+                            continue;
+                    }
+
+                    var result = new MarkAsReadResult
+                    {
+                        MessageId = email.Id,
+                        Subject = email.Subject,
+                        SenderEmail = email.SenderEmail,
+                        ReceivedDateTime = email.ReceivedDateTime,
+                        WasAlreadyRead = email.IsRead
+                    };
+
+                    if (email.IsRead)
+                    {
+                        // Already read — nothing to do
+                        result.MarkedAsRead = false;
+                    }
+                    else if (dryRun)
+                    {
+                        result.MarkedAsRead = false;
+                    }
+                    else
+                    {
+                        try
+                        {
+                            var patchUrl = $"https://graph.microsoft.com/v1.0/me/messages/{email.Id}";
+                            var patchContent = new StringContent(
+                                "{\"isRead\":true}",
+                                System.Text.Encoding.UTF8,
+                                "application/json");
+                            var patchResponse = await httpClient.PatchAsync(patchUrl, patchContent);
+                            patchResponse.EnsureSuccessStatusCode();
+                            result.MarkedAsRead = true;
+                        }
+                        catch (Exception ex)
+                        {
+                            result.MarkedAsRead = false;
+                            result.Error = ex.Message;
+                            _logger.LogWarning(ex, "Failed to mark message {MessageId} as read", email.Id);
+                        }
+                    }
+
+                    results.Add(result);
+                }
+            }
+
+            url = data.TryGetProperty("@odata.nextLink", out var nextLink)
+                ? nextLink.GetString() ?? ""
+                : "";
+
+            if (string.IsNullOrEmpty(url)) break;
+        }
+
+        _logger.LogInformation(
+            "Mark-as-read completed: {Total} matched, {Marked} marked, dryRun={DryRun}",
+            results.Count, results.Count(r => r.MarkedAsRead), dryRun);
+
+        return results;
+    }
+
     private async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, bool includeBody)
     {
         var emails = new List<EmailMessage>();
