@@ -103,24 +103,19 @@ public class GraphEmailService
         var deletedItemsFolderId = await GetFolderIdAsync(httpClient, "Deleted Items");
         var junkEmailFolderId = await GetFolderIdAsync(httpClient, "Junk Email");
 
-        // Build OData filter
-        var filters = new List<string> { "isDraft eq false" };
-
-        if (!string.IsNullOrEmpty(senderEmail))
-            filters.Add($"from/emailAddress/address eq '{senderEmail}'");
-
-        if (unreadOnly)
-            filters.Add("isRead eq false");
+        // Build OData filter — keep it minimal to avoid 400s on personal accounts.
+        // Filter on sender + date server-side; isDraft / isRead are checked client-side.
+        var filter = !string.IsNullOrEmpty(senderEmail)
+            ? $"from/emailAddress/address eq '{senderEmail}'"
+            : "isDraft eq false";
 
         if (daysBack.HasValue)
         {
             var startDate = DateTime.UtcNow.AddDays(-daysBack.Value).ToString("yyyy-MM-ddTHH:mm:ssZ");
-            filters.Add($"receivedDateTime ge {startDate}");
+            filter += $" and receivedDateTime ge {startDate}";
         }
-
-        var filter = string.Join(" and ", filters);
         var select = "id,subject,from,receivedDateTime,isRead,parentFolderId";
-        var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select={select}&$top=100&$orderby=receivedDateTime desc";
+        var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select={select}&$top=100";
 
         var results = new List<MarkAsReadResult>();
         var pageCount = 0;
@@ -131,7 +126,12 @@ public class GraphEmailService
             _logger.LogInformation("Fetching page {Page} for mark-as-read", pageCount);
 
             var response = await httpClient.GetAsync(url);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                var errorBody = await response.Content.ReadAsStringAsync();
+                throw new HttpRequestException(
+                    $"Graph API returned {(int)response.StatusCode}: {errorBody}");
+            }
 
             var content = await response.Content.ReadAsStringAsync();
             var data = JsonSerializer.Deserialize<JsonElement>(content);
@@ -152,6 +152,10 @@ public class GraphEmailService
                         if (!emailDomain.Equals(senderDomain, StringComparison.OrdinalIgnoreCase))
                             continue;
                     }
+
+                    // Client-side unreadOnly filter
+                    if (unreadOnly && email.IsRead)
+                        continue;
 
                     var result = new MarkAsReadResult
                     {
