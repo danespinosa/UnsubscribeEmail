@@ -65,30 +65,40 @@ public class GraphEmailService
             filter += $" and receivedDateTime ge {startDate}";
         }
 
-        var url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,body,from,toRecipients,receivedDateTime,isRead,parentFolderId&$top={Math.Min(maxEmails * 2, 50)}&$orderby=receivedDateTime desc";
+        // Note: $orderby cannot be combined with $filter on from/emailAddress/address (Graph returns 400).
+        // Fetch all matching emails across pages, then sort and take client-side.
+        string? url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id,subject,body,from,toRecipients,receivedDateTime,isRead,parentFolderId&$top=50";
 
         var emails = new List<EmailMessage>();
 
-        var response = await httpClient.GetAsync(url);
-        response.EnsureSuccessStatusCode();
-
-        var content = await response.Content.ReadAsStringAsync();
-        var data = JsonSerializer.Deserialize<JsonElement>(content);
-
-        if (data.TryGetProperty("value", out var messagesArray))
+        while (!string.IsNullOrEmpty(url))
         {
-            foreach (var message in messagesArray.EnumerateArray())
+            var response = await httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+            if (data.TryGetProperty("value", out var messagesArray))
             {
-                if (emails.Count >= maxEmails) break;
+                foreach (var message in messagesArray.EnumerateArray())
+                {
+                    if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
+                        continue;
 
-                if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
-                    continue;
-
-                emails.Add(ParseEmailMessage(message, includeBody: true));
+                    emails.Add(ParseEmailMessage(message, includeBody: true));
+                }
             }
+
+            url = data.TryGetProperty("@odata.nextLink", out var nextLink)
+                ? nextLink.GetString()
+                : null;
         }
 
-        return emails;
+        return emails
+            .OrderByDescending(e => e.ReceivedDateTime)
+            .Take(maxEmails)
+            .ToList();
     }
 
     private async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, bool includeBody)
