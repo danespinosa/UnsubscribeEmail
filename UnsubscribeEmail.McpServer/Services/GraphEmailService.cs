@@ -207,6 +207,95 @@ public class GraphEmailService
         return null;
     }
 
+    public async Task<int> MarkEmailsAsReadAsync(string senderEmail, int? daysBack = null)
+    {
+        if (!EmailRegex.IsMatch(senderEmail))
+            throw new ArgumentException($"Invalid email format: {senderEmail}", nameof(senderEmail));
+
+        var ids = await GetEmailIdsBySenderAsync(senderEmail, daysBack, unreadOnly: true);
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
+        var marked = 0;
+
+        foreach (var id in ids)
+        {
+            var request = new HttpRequestMessage(HttpMethod.Patch,
+                $"https://graph.microsoft.com/v1.0/me/messages/{id}");
+            request.Content = new StringContent(
+                "{\"isRead\":true}",
+                System.Text.Encoding.UTF8,
+                "application/json");
+
+            var response = await httpClient.SendAsync(request);
+            if (response.IsSuccessStatusCode) marked++;
+        }
+
+        _logger.LogInformation("Marked {Count}/{Total} emails from {Sender} as read", marked, ids.Count, senderEmail);
+        return marked;
+    }
+
+    public async Task<int> DeleteEmailsAsync(string senderEmail, int? daysBack = null)
+    {
+        if (!EmailRegex.IsMatch(senderEmail))
+            throw new ArgumentException($"Invalid email format: {senderEmail}", nameof(senderEmail));
+
+        var ids = await GetEmailIdsBySenderAsync(senderEmail, daysBack);
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
+        var deleted = 0;
+
+        foreach (var id in ids)
+        {
+            var response = await httpClient.DeleteAsync(
+                $"https://graph.microsoft.com/v1.0/me/messages/{id}");
+            if (response.IsSuccessStatusCode) deleted++;
+        }
+
+        _logger.LogInformation("Deleted {Count}/{Total} emails from {Sender}", deleted, ids.Count, senderEmail);
+        return deleted;
+    }
+
+    private async Task<List<string>> GetEmailIdsBySenderAsync(string senderEmail, int? daysBack, bool unreadOnly = false)
+    {
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
+
+        var filter = $"from/emailAddress/address eq '{senderEmail}'";
+        if (daysBack.HasValue)
+        {
+            var startDate = DateTime.UtcNow.AddDays(-daysBack.Value).ToString("yyyy-MM-ddTHH:mm:ssZ");
+            filter += $" and receivedDateTime ge {startDate}";
+        }
+        if (unreadOnly)
+        {
+            filter += " and isRead eq false";
+        }
+
+        string? url = $"https://graph.microsoft.com/v1.0/me/messages?$filter={Uri.EscapeDataString(filter)}&$select=id&$top=50";
+        var ids = new List<string>();
+
+        while (!string.IsNullOrEmpty(url))
+        {
+            var response = await httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            var content = await response.Content.ReadAsStringAsync();
+            var data = JsonSerializer.Deserialize<JsonElement>(content);
+
+            if (data.TryGetProperty("value", out var messagesArray))
+            {
+                foreach (var message in messagesArray.EnumerateArray())
+                {
+                    var id = message.GetProperty("id").GetString();
+                    if (id != null) ids.Add(id);
+                }
+            }
+
+            url = data.TryGetProperty("@odata.nextLink", out var nextLink)
+                ? nextLink.GetString()
+                : null;
+        }
+
+        return ids;
+    }
+
     private static bool IsEmailInExcludedFolder(JsonElement message, string? deletedItemsFolderId, string? junkEmailFolderId)
     {
         if (!message.TryGetProperty("parentFolderId", out var parentFolderId))
