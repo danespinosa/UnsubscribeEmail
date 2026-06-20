@@ -1,7 +1,6 @@
 using System.Net;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.Extensions.FileProviders;
 using Microsoft.Identity.Web;
 using Microsoft.Identity.Web.UI;
 using UnsubscribeEmail.Hubs;
@@ -78,15 +77,6 @@ if (!app.Environment.IsDevelopment())
     // The default HSTS value is 30 days. You may want to change this for production scenarios, see https://aka.ms/aspnetcore-hsts.
     app.UseHsts();
 }
-
-// Configure path to generate https cert
-app.UseStaticFiles(new StaticFileOptions
-{
-    FileProvider = new PhysicalFileProvider(
-                   Path.Combine(builder.Environment.WebRootPath, "StaticFiles")),
-    RequestPath = "/.well-known",
-    ServeUnknownFileTypes = true,
-});
 
 app.UseHttpsRedirection();
 app.UseRouting();
