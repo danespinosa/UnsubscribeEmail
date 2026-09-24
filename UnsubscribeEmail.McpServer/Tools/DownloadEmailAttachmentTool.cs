@@ -66,7 +66,6 @@ public class DownloadEmailAttachmentTool
                 size = download.Attachment.Size,
                 downloadedSize = download.DownloadedSize,
                 isInline = download.Attachment.IsInline,
-                contentId = download.Attachment.ContentId,
                 lastModifiedDateTime = download.Attachment.LastModifiedDateTime,
                 attachmentType = download.Attachment.AttachmentType,
                 base64Content = download.Base64Content

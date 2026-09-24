@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Net;
 using System.Text;
 using System.Text.Json;
@@ -24,7 +25,6 @@ public class AttachmentToolsTests
               "contentType": "image/png",
               "size": 3,
               "isInline": true,
-              "contentId": "cid-inline",
               "lastModifiedDateTime": "2026-09-24T12:00:00Z",
               "contentBytes": "AQID"
             },
@@ -66,20 +66,37 @@ public class AttachmentToolsTests
         Assert.Equal(3, attachments.GetArrayLength());
         Assert.Equal("file", attachments[0].GetProperty("attachmentType").GetString());
         Assert.True(attachments[0].GetProperty("isInline").GetBoolean());
-        Assert.Equal("cid-inline", attachments[0].GetProperty("contentId").GetString());
         Assert.Equal("2026-09-24T12:00:00Z", attachments[0].GetProperty("lastModifiedDateTime").GetString());
         Assert.True(attachments[0].GetProperty("downloadSupported").GetBoolean());
         Assert.Equal("item", attachments[1].GetProperty("attachmentType").GetString());
         Assert.True(attachments[1].GetProperty("downloadSupported").GetBoolean());
         Assert.Equal("reference", attachments[2].GetProperty("attachmentType").GetString());
         Assert.False(attachments[2].GetProperty("downloadSupported").GetBoolean());
+        Assert.False(attachments[2].TryGetProperty("sourceUrl", out _));
         Assert.DoesNotContain("contentBytes", result, StringComparison.OrdinalIgnoreCase);
 
         Assert.Contains(
             "/me/messages/message%2Fwith%3Dcharacters/attachments",
             handler.Requests[0],
             StringComparison.Ordinal);
-        Assert.DoesNotContain("contentBytes", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(
+            "$select=id,name,contentType,size,isInline,lastModifiedDateTime",
+            handler.Requests[0],
+            StringComparison.Ordinal);
+        foreach (var derivedProperty in new[]
+        {
+            "contentBytes",
+            "contentId",
+            "sourceUrl",
+            "providerType",
+            "permission",
+            "isFolder",
+            "item"
+        })
+        {
+            Assert.DoesNotContain(derivedProperty, handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        }
+        Assert.False(attachments[0].TryGetProperty("contentId", out _));
     }
 
     [Fact]
@@ -188,6 +205,12 @@ public class AttachmentToolsTests
         Assert.Equal("application/pdf", result.ContentType);
         Assert.Contains("message%2F1%3D", handler.Requests[0], StringComparison.Ordinal);
         Assert.Contains("attachment%2F1%3D", handler.Requests[0], StringComparison.Ordinal);
+        Assert.Contains(
+            "$select=id,name,contentType,size,isInline,lastModifiedDateTime",
+            handler.Requests[0],
+            StringComparison.Ordinal);
+        Assert.DoesNotContain("contentId", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("sourceUrl", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
         Assert.EndsWith("/$value", handler.Requests[1], StringComparison.Ordinal);
     }
 
@@ -373,19 +396,35 @@ public class AttachmentToolsTests
     [Fact]
     public void AttachmentToolContractsExposeBoundedIdBasedParameters()
     {
-        var listParameters = typeof(ListEmailAttachmentsTool)
-            .GetMethod(nameof(ListEmailAttachmentsTool.ListEmailAttachments))!
+        var listMethod = typeof(ListEmailAttachmentsTool)
+            .GetMethod(nameof(ListEmailAttachmentsTool.ListEmailAttachments))!;
+        var listParameters = listMethod
             .GetParameters();
         Assert.Equal(new[] { "authService", "graphService", "messageId", "maxAttachments" },
             listParameters.Select(parameter => parameter.Name).ToArray());
         Assert.Equal(100, listParameters[^1].DefaultValue);
+        var listDescription = listMethod
+            .GetCustomAttributes(typeof(DescriptionAttribute), inherit: false)
+            .Cast<DescriptionAttribute>()
+            .Single()
+            .Description;
+        Assert.Contains("emails[].messageId", listDescription, StringComparison.Ordinal);
+        Assert.Contains("emails[].Id", listDescription, StringComparison.Ordinal);
 
-        var downloadParameters = typeof(DownloadEmailAttachmentTool)
-            .GetMethod(nameof(DownloadEmailAttachmentTool.DownloadEmailAttachment))!
+        var downloadMethod = typeof(DownloadEmailAttachmentTool)
+            .GetMethod(nameof(DownloadEmailAttachmentTool.DownloadEmailAttachment))!;
+        var downloadParameters = downloadMethod
             .GetParameters();
         Assert.Equal(new[] { "authService", "graphService", "messageId", "attachmentId", "maxBytes" },
             downloadParameters.Select(parameter => parameter.Name).ToArray());
         Assert.Equal(4_000_000, downloadParameters[^1].DefaultValue);
+        var downloadDescription = downloadMethod
+            .GetCustomAttributes(typeof(DescriptionAttribute), inherit: false)
+            .Cast<DescriptionAttribute>()
+            .Single()
+            .Description;
+        Assert.Contains("Reference attachments return an explicit error", downloadDescription, StringComparison.Ordinal);
+        Assert.DoesNotContain("sourceUrl", downloadDescription, StringComparison.OrdinalIgnoreCase);
     }
 
     private static (Mock<AuthService> AuthService, GraphEmailService GraphService) CreateServices(

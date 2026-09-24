@@ -12,8 +12,7 @@ namespace UnsubscribeEmail.McpServer.Services;
 public class GraphEmailService
 {
     private const string GraphApiBaseUrl = "https://graph.microsoft.com/v1.0";
-    private const string AttachmentSelect =
-        "id,name,contentType,size,isInline,contentId,lastModifiedDateTime,sourceUrl,providerType,permission,isFolder";
+    private const string AttachmentSelect = "id,name,contentType,size,isInline,lastModifiedDateTime";
     private const int DefaultMaxAttachments = 100;
     private const int MaxAllowedAttachments = 500;
     private const int DefaultMaxAttachmentBytes = 4_000_000;
@@ -309,8 +308,7 @@ public class GraphEmailService
         {
             throw new InvalidOperationException(
                 $"Attachment '{attachment.AttachmentId}' on message '{attachment.MessageId}' " +
-                "is a reference attachment and cannot be downloaded because it has no message content. " +
-                "Use its sourceUrl instead.");
+                "is a reference attachment and cannot be downloaded because it has no message content.");
         }
 
         if (attachment.AttachmentType is not ("file" or "item"))
@@ -479,17 +477,9 @@ public class GraphEmailService
             ContentType = GetStringProperty(attachment, "contentType"),
             Size = GetLongProperty(attachment, "size"),
             IsInline = GetBoolProperty(attachment, "isInline"),
-            ContentId = GetStringProperty(attachment, "contentId"),
             LastModifiedDateTime = GetStringProperty(attachment, "lastModifiedDateTime"),
             AttachmentType = attachmentType,
             DownloadSupported = attachmentType is "file" or "item",
-            SourceUrl = sourceUrl,
-            ProviderType = GetStringProperty(attachment, "providerType"),
-            Permission = GetStringProperty(attachment, "permission"),
-            IsFolder = GetBoolProperty(attachment, "isFolder"),
-            ItemId = item.HasValue ? GetStringProperty(item.Value, "id") : null,
-            ItemType = item.HasValue ? GetStringProperty(item.Value, "@odata.type") : null,
-            ItemSubject = item.HasValue ? GetStringProperty(item.Value, "subject") : null
         };
     }
 
