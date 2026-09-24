@@ -8,6 +8,7 @@ public sealed class EmailAttachment
     public string? ContentType { get; init; }
     public long? Size { get; init; }
     public bool? IsInline { get; init; }
+    public string? ContentId { get; init; }
     public string? LastModifiedDateTime { get; init; }
     public string AttachmentType { get; init; } = "unknown";
     public bool DownloadSupported { get; init; }

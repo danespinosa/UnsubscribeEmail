@@ -25,6 +25,7 @@ public class AttachmentToolsTests
               "contentType": "image/png",
               "size": 3,
               "isInline": true,
+              "contentId": "cid-inline",
               "lastModifiedDateTime": "2026-09-24T12:00:00Z",
               "contentBytes": "AQID"
             },
@@ -66,6 +67,7 @@ public class AttachmentToolsTests
         Assert.Equal(3, attachments.GetArrayLength());
         Assert.Equal("file", attachments[0].GetProperty("attachmentType").GetString());
         Assert.True(attachments[0].GetProperty("isInline").GetBoolean());
+        Assert.Equal("cid-inline", attachments[0].GetProperty("contentId").GetString());
         Assert.Equal("2026-09-24T12:00:00Z", attachments[0].GetProperty("lastModifiedDateTime").GetString());
         Assert.True(attachments[0].GetProperty("downloadSupported").GetBoolean());
         Assert.Equal("item", attachments[1].GetProperty("attachmentType").GetString());
@@ -80,13 +82,14 @@ public class AttachmentToolsTests
             handler.Requests[0],
             StringComparison.Ordinal);
         Assert.Contains(
-            "$select=id,name,contentType,size,isInline,lastModifiedDateTime",
+            "$select=id,name,contentType,size,isInline,lastModifiedDateTime,microsoft.graph.fileAttachment/contentId",
             handler.Requests[0],
             StringComparison.Ordinal);
-        foreach (var derivedProperty in new[]
+        Assert.DoesNotContain(",contentId", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("$select=contentId", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        foreach (var omittedProperty in new[]
         {
             "contentBytes",
-            "contentId",
             "sourceUrl",
             "providerType",
             "permission",
@@ -94,9 +97,8 @@ public class AttachmentToolsTests
             "item"
         })
         {
-            Assert.DoesNotContain(derivedProperty, handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain(omittedProperty, handler.Requests[0], StringComparison.OrdinalIgnoreCase);
         }
-        Assert.False(attachments[0].TryGetProperty("contentId", out _));
     }
 
     [Fact]
@@ -187,6 +189,7 @@ public class AttachmentToolsTests
           "contentType": "application/pdf",
           "size": 3,
           "isInline": false,
+          "contentId": "cid-report",
           "lastModifiedDateTime": "2026-09-24T12:00:00Z"
         }
         """);
@@ -200,16 +203,18 @@ public class AttachmentToolsTests
 
         Assert.Equal("attachment/1=", result.Attachment.AttachmentId);
         Assert.Equal("file", result.Attachment.AttachmentType);
+        Assert.Equal("cid-report", result.Attachment.ContentId);
         Assert.Equal("AQID", result.Base64Content);
         Assert.Equal(3, result.DownloadedSize);
         Assert.Equal("application/pdf", result.ContentType);
         Assert.Contains("message%2F1%3D", handler.Requests[0], StringComparison.Ordinal);
         Assert.Contains("attachment%2F1%3D", handler.Requests[0], StringComparison.Ordinal);
         Assert.Contains(
-            "$select=id,name,contentType,size,isInline,lastModifiedDateTime",
+            "$select=id,name,contentType,size,isInline,lastModifiedDateTime,microsoft.graph.fileAttachment/contentId",
             handler.Requests[0],
             StringComparison.Ordinal);
-        Assert.DoesNotContain("contentId", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(",contentId", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("$select=contentId", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("sourceUrl", handler.Requests[0], StringComparison.OrdinalIgnoreCase);
         Assert.EndsWith("/$value", handler.Requests[1], StringComparison.Ordinal);
     }
@@ -225,7 +230,8 @@ public class AttachmentToolsTests
           "name": "report.txt",
           "contentType": "text/plain",
           "size": 4,
-          "isInline": false
+          "isInline": false,
+          "contentId": "cid-report"
         }
         """);
         handler.EnqueueRawResponse(Encoding.UTF8.GetBytes("data"), "text/plain");
@@ -243,6 +249,7 @@ public class AttachmentToolsTests
         Assert.Equal("message-1", json.GetProperty("messageId").GetString());
         Assert.Equal("attachment-1", json.GetProperty("attachmentId").GetString());
         Assert.Equal("text/plain", json.GetProperty("contentType").GetString());
+        Assert.Equal("cid-report", json.GetProperty("contentId").GetString());
         Assert.Equal("ZGF0YQ==", json.GetProperty("base64Content").GetString());
         Assert.False(json.TryGetProperty("filePath", out _));
     }
@@ -410,6 +417,7 @@ public class AttachmentToolsTests
             .Description;
         Assert.Contains("emails[].messageId", listDescription, StringComparison.Ordinal);
         Assert.Contains("emails[].Id", listDescription, StringComparison.Ordinal);
+        Assert.Contains("content IDs", listDescription, StringComparison.Ordinal);
 
         var downloadMethod = typeof(DownloadEmailAttachmentTool)
             .GetMethod(nameof(DownloadEmailAttachmentTool.DownloadEmailAttachment))!;
@@ -423,6 +431,7 @@ public class AttachmentToolsTests
             .Cast<DescriptionAttribute>()
             .Single()
             .Description;
+        Assert.Contains("content IDs", downloadDescription, StringComparison.Ordinal);
         Assert.Contains("Reference attachments return an explicit error", downloadDescription, StringComparison.Ordinal);
         Assert.DoesNotContain("sourceUrl", downloadDescription, StringComparison.OrdinalIgnoreCase);
     }

@@ -19,7 +19,7 @@ public class ListEmailAttachmentsTool
         "Pass the exact message ID returned by get_email_content (emails[].messageId or legacy emails[].Id), " +
         "mark_emails_as_read (messages[].messageId), or read_emails (senders[].sampleMessageId). " +
         "Returns the exact message ID, bounded totalAttachments, hasMore, and attachment metadata including " +
-        "attachment IDs, names, MIME types, sizes, inline flags, last-modified timestamps, and " +
+        "attachment IDs, names, MIME types, sizes, inline flags/content IDs, last-modified timestamps, and " +
         "attachment type (file, item, reference, or unknown). " +
         "The response selects metadata only and never includes contentBytes. " +
         "Reference attachments are listed with their Graph metadata but are not downloadable by the download tool. " +
