@@ -320,7 +320,7 @@ namespace UnsubscribeEmail.Services
                 {
                     try
                     {
-                        var patchUrl = $"https://graph.microsoft.com/v1.0/me/messages/{emailId}";
+                        var patchUrl = $"https://graph.microsoft.com/v1.0/me/messages/{Uri.EscapeDataString(emailId)}";
                         var patchContent = new StringContent(
                             JsonSerializer.Serialize(new { isRead = true }),
                             System.Text.Encoding.UTF8,
@@ -448,7 +448,7 @@ namespace UnsubscribeEmail.Services
                 {
                     try
                     {
-                        var deleteUrl = $"https://graph.microsoft.com/v1.0/me/messages/{emailId}";
+                        var deleteUrl = $"https://graph.microsoft.com/v1.0/me/messages/{Uri.EscapeDataString(emailId)}";
                         var deleteResponse = await httpClient.DeleteAsync(deleteUrl);
                         if (deleteResponse.IsSuccessStatusCode)
                         {

@@ -304,7 +304,7 @@ public class AttachmentToolsTests
     }
 
     [Fact]
-    public async Task DownloadAttachment_RejectsKnownOversizeBeforeValueRequest()
+    public async Task DownloadAttachment_DoesNotTreatAdvisoryMetadataSizeAsDecodedContentSize()
     {
         var handler = new AttachmentGraphHandler();
         handler.EnqueueMetadataResponse("""
@@ -316,14 +316,19 @@ public class AttachmentToolsTests
           "size": 11
         }
         """);
+        handler.EnqueueRawResponse(new byte[] { 1, 2, 3 }, "application/octet-stream");
         var (authService, graphService) = CreateServices(handler);
 
-        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-            graphService.DownloadEmailAttachmentAsync("message-1", "large-1", 10));
+        var download = await graphService.DownloadEmailAttachmentAsync(
+          "message-1",
+          "large-1",
+          maxBytes: 10);
 
-        Assert.Contains("maxBytes", exception.Message, StringComparison.Ordinal);
-        Assert.Single(handler.Requests);
-        Assert.DoesNotContain("$value", handler.Requests[0], StringComparison.Ordinal);
+        Assert.Equal(11, download.Attachment.Size);
+        Assert.Equal(3, download.DownloadedSize);
+        Assert.Equal("AQID", download.Base64Content);
+        Assert.Equal(2, handler.Requests.Count);
+        Assert.EndsWith("/$value", handler.Requests[1], StringComparison.Ordinal);
     }
 
     [Fact]

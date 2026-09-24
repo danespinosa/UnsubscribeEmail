@@ -15,6 +15,7 @@ public class AuthService : IDisposable
 {
     private readonly ILogger<AuthService> _logger;
     private readonly HttpClient _httpClient = new();
+    private readonly SemaphoreSlim _attachmentOperationGate = new(1, 1);
     private AadConfiguration _config = new();
     private IPublicClientApplication? _msalClient;
     private AuthenticationResult? _authResult;
@@ -33,6 +34,7 @@ public class AuthService : IDisposable
     public bool IsConfigured => _config.IsConfigured;
     public virtual bool IsAuthenticated => _authResult != null && _authResult.ExpiresOn > DateTimeOffset.UtcNow;
     public string? UserEmail => _authResult?.Account?.Username;
+    internal SemaphoreSlim AttachmentOperationGate => _attachmentOperationGate;
 
     public void Configure(string clientId, string tenantId, string clientSecret, bool saveLocally = false)
     {
@@ -302,5 +304,6 @@ public class AuthService : IDisposable
     public void Dispose()
     {
         _httpClient.Dispose();
+        _attachmentOperationGate.Dispose();
     }
 }
