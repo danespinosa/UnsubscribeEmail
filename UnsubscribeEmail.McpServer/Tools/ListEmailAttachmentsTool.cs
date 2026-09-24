@@ -62,6 +62,20 @@ public class ListEmailAttachmentsTool
                 attachments = result.Attachments
             }, JsonOptions);
         }
+        catch (GraphApiException ex)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                status = "error",
+                message = ex.Message,
+                statusCode = (int)ex.GraphStatusCode,
+                code = ex.GraphCode,
+                retryable = ex.IsRetryable,
+                retryAfterSeconds = ex.RetryAfter?.TotalSeconds,
+                totalRetryDelaySeconds = ex.TotalRetryDelay.TotalSeconds,
+                retryCount = ex.RetryCount
+            }, JsonOptions);
+        }
         catch (Exception ex)
         {
             return JsonSerializer.Serialize(new

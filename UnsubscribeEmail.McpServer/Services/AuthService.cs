@@ -13,6 +13,8 @@ namespace UnsubscribeEmail.McpServer.Services;
 /// </summary>
 public class AuthService : IDisposable
 {
+    public const string ImmutableIdPreferenceHeaderValue = "IdType=\"ImmutableId\"";
+
     private readonly ILogger<AuthService> _logger;
     private readonly HttpClient _httpClient = new();
     private readonly SemaphoreSlim _attachmentOperationGate = new(1, 1);
@@ -159,7 +161,7 @@ public class AuthService : IDisposable
         }
     }
 
-    public string GetAccessToken()
+    public virtual string GetAccessToken()
     {
         if (_authResult == null || string.IsNullOrEmpty(_authResult.AccessToken))
             throw new InvalidOperationException("Not authenticated. Call the login tool first.");
@@ -174,6 +176,9 @@ public class AuthService : IDisposable
     {
         var client = new HttpClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", GetAccessToken());
+        client.DefaultRequestHeaders.TryAddWithoutValidation(
+            "Prefer",
+            ImmutableIdPreferenceHeaderValue);
         return client;
     }
 

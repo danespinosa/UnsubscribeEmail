@@ -20,6 +20,7 @@ public class GraphEmailService
     private const int MaxAllowedAttachmentBytes = 10_000_000;
     private const int AttachmentRetryCount = 3;
     private const int MessagePageSize = 100;
+    private const int MaxSearchCandidateScan = 100;
 
     private readonly AuthService _authService;
     private readonly ILogger<GraphEmailService> _logger;
@@ -157,8 +158,11 @@ public class GraphEmailService
             orderByReceivedDateDescending: true);
         var results = new List<EmailSearchResult>();
         var hasMore = false;
+        var candidateScanCount = 0;
 
-        while (!string.IsNullOrEmpty(url) && results.Count < maxEmails)
+        while (!string.IsNullOrEmpty(url) &&
+               results.Count < maxEmails &&
+               candidateScanCount < MaxSearchCandidateScan)
         {
             using var response = await httpClient.GetAsync(url, cancellationToken);
             await EnsureGraphSuccessAsync(response);
@@ -170,6 +174,7 @@ public class GraphEmailService
             if (data.TryGetProperty("value", out var messagesArray) &&
                 messagesArray.ValueKind == JsonValueKind.Array)
             {
+                var pageHasUnprocessedCandidates = false;
                 for (var messageIndex = 0; messageIndex < messagesArray.GetArrayLength(); messageIndex++)
                 {
                     if (results.Count >= maxEmails)
@@ -178,6 +183,13 @@ public class GraphEmailService
                         break;
                     }
 
+                    if (candidateScanCount >= MaxSearchCandidateScan)
+                    {
+                        pageHasUnprocessedCandidates = true;
+                        break;
+                    }
+
+                    candidateScanCount++;
                     var message = messagesArray[messageIndex];
 
                     if (IsEmailInExcludedFolder(message, deletedItemsFolderId, junkEmailFolderId))
@@ -213,16 +225,16 @@ public class GraphEmailService
                         break;
                     }
                 }
+
+                hasMore |= pageHasUnprocessedCandidates;
             }
 
             var nextUrl = GetNextLink(data);
-            if (results.Count >= maxEmails)
-            {
-                hasMore |= !string.IsNullOrEmpty(nextUrl);
-                break;
-            }
-
-            url = nextUrl;
+            hasMore |= !string.IsNullOrEmpty(nextUrl);
+            // Keep discovery bounded to one Graph page (at most 100 candidates).
+            // A next link is reported rather than followed so selective local
+            // filters cannot turn this read-only tool into an unbounded scan.
+            break;
         }
 
         return new EmailSearchPage
@@ -789,6 +801,7 @@ public class GraphEmailService
         int maxBytes,
         CancellationToken cancellationToken)
     {
+        var expectedLength = content.Headers.ContentLength;
         await using var responseStream = await content.ReadAsStreamAsync(cancellationToken);
         await using var memoryStream = new MemoryStream();
         var buffer = new byte[81920];
@@ -805,6 +818,13 @@ public class GraphEmailService
 
             await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
             totalBytes += bytesRead;
+        }
+
+        if (expectedLength.HasValue && totalBytes != expectedLength.Value)
+        {
+            throw new InvalidOperationException(
+                $"Attachment content was incomplete: received {totalBytes} bytes, " +
+                $"but the response Content-Length declared {expectedLength.Value} bytes.");
         }
 
         return memoryStream.ToArray();
@@ -832,6 +852,7 @@ public class GraphEmailService
 
             if (!isRetryable || retryCount >= AttachmentRetryCount)
             {
+                var retryAfter = GetRetryAfter(response);
                 response.Dispose();
                 throw new GraphApiException(
                     statusCode,
@@ -843,7 +864,9 @@ public class GraphEmailService
                     totalRetryDelay,
                     details.RequestId,
                     details.ClientRequestId,
-                    details.InnerCode);
+                    details.InnerCode,
+                    retryAfter,
+                    totalRetryDelay);
             }
 
             var delay = GetRetryDelay(response, retryCount);
@@ -863,6 +886,18 @@ public class GraphEmailService
 
     private TimeSpan GetRetryDelay(HttpResponseMessage response, int retryIndex)
     {
+        if (GetRetryAfter(response) is { } retryAfter)
+            return retryAfter;
+
+        var fallbackSeconds = Math.Min(Math.Pow(2, retryIndex), 8);
+        var jitteredDelay = _retryJitter.Apply(TimeSpan.FromSeconds(fallbackSeconds));
+        return jitteredDelay > TimeSpan.FromSeconds(8)
+            ? TimeSpan.FromSeconds(8)
+            : jitteredDelay < TimeSpan.Zero ? TimeSpan.Zero : jitteredDelay;
+    }
+
+    private TimeSpan? GetRetryAfter(HttpResponseMessage response)
+    {
         if (response.Headers.RetryAfter?.Delta is { } delta)
             return delta < TimeSpan.Zero ? TimeSpan.Zero : delta;
 
@@ -872,11 +907,7 @@ public class GraphEmailService
             return delay < TimeSpan.Zero ? TimeSpan.Zero : delay;
         }
 
-        var fallbackSeconds = Math.Min(Math.Pow(2, retryIndex), 8);
-        var jitteredDelay = _retryJitter.Apply(TimeSpan.FromSeconds(fallbackSeconds));
-        return jitteredDelay > TimeSpan.FromSeconds(8)
-            ? TimeSpan.FromSeconds(8)
-            : jitteredDelay < TimeSpan.Zero ? TimeSpan.Zero : jitteredDelay;
+        return null;
     }
 
     private static bool IsTransientStatusCode(HttpStatusCode statusCode)

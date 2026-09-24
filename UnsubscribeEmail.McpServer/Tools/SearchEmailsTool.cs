@@ -15,6 +15,7 @@ public class SearchEmailsTool
         "subjectContains is required. Results are newest first, capped at 50, and include the exact Graph " +
         "messageId, subject, receivedDateTime, sender, isRead, and hasAttachments. Attachment metadata is " +
         "not fetched here; pass an exact messageId to list_email_attachments to avoid unbounded N+1 calls. " +
+        "Each invocation scans at most 100 candidate messages and sets hasMore when more candidates remain. " +
         "You must be logged in first (call 'login' tool).")]
     public static async Task<string> SearchEmails(
         AuthService authService,

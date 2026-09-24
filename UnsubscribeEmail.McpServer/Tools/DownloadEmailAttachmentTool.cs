@@ -14,8 +14,8 @@ public class DownloadEmailAttachmentTool
         "Download one file or item attachment from an email message using Microsoft Graph. " +
         "Pass the exact message ID returned by an email-reading tool and the exact attachment ID returned by list_email_attachments. " +
         "The raw bytes are bounded and returned as base64Content with the response MIME type and attachment metadata, including inline flags and content IDs. " +
-        "maxBytes defaults to 4,000,000 and is clamped to a maximum of 10,000,000; known oversized content is rejected before reading, and the stream is bounded when no length is provided. " +
-        "The metadata size and downloadedSize describe different representations and can differ; a completed bounded stream is not treated as truncated solely because those values differ. " +
+        "maxBytes defaults to 4,000,000 and is clamped to a maximum of 10,000,000; Graph metadata size is advisory, while the response Content-Length and bounded stream enforce the limit. " +
+        "The metadata size and downloadedSize describe different representations and can differ; a completed bounded stream is not treated as truncated solely because those values differ, while a short declared response is reported as incomplete. " +
         "File and item attachments use Graph's /$value form. Reference attachments return an explicit error and never call /$value. " +
         "You must be logged in first (call 'login' tool).")]
     public static async Task<string> DownloadEmailAttachment(
@@ -71,6 +71,20 @@ public class DownloadEmailAttachmentTool
                 lastModifiedDateTime = download.Attachment.LastModifiedDateTime,
                 attachmentType = download.Attachment.AttachmentType,
                 base64Content = download.Base64Content
+            }, JsonOptions);
+        }
+        catch (GraphApiException ex)
+        {
+            return JsonSerializer.Serialize(new
+            {
+                status = "error",
+                message = ex.Message,
+                statusCode = (int)ex.GraphStatusCode,
+                code = ex.GraphCode,
+                retryable = ex.IsRetryable,
+                retryAfterSeconds = ex.RetryAfter?.TotalSeconds,
+                totalRetryDelaySeconds = ex.TotalRetryDelay.TotalSeconds,
+                retryCount = ex.RetryCount
             }, JsonOptions);
         }
         catch (Exception ex)

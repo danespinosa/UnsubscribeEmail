@@ -18,7 +18,9 @@ public sealed class GraphApiException : HttpRequestException
         TimeSpan? retryDelay = null,
         string? requestId = null,
         string? clientRequestId = null,
-        string? innerErrorCode = null)
+        string? innerErrorCode = null,
+        TimeSpan? retryAfter = null,
+        TimeSpan? totalRetryDelay = null)
         : base(
             BuildMessage(
                 statusCode,
@@ -30,7 +32,9 @@ public sealed class GraphApiException : HttpRequestException
                 retryDelay,
                 requestId,
                 clientRequestId,
-                innerErrorCode),
+                innerErrorCode,
+                retryAfter,
+                totalRetryDelay),
             inner: null,
             statusCode)
     {
@@ -41,6 +45,8 @@ public sealed class GraphApiException : HttpRequestException
         IsRetryable = isRetryable;
         RetryCount = retryCount;
         RetryDelay = retryDelay ?? TimeSpan.Zero;
+        RetryAfter = retryAfter;
+        TotalRetryDelay = totalRetryDelay ?? retryDelay ?? TimeSpan.Zero;
         RequestId = requestId;
         ClientRequestId = clientRequestId;
         InnerErrorCode = innerErrorCode;
@@ -53,6 +59,8 @@ public sealed class GraphApiException : HttpRequestException
     public bool IsRetryable { get; }
     public int RetryCount { get; }
     public TimeSpan RetryDelay { get; }
+    public TimeSpan? RetryAfter { get; }
+    public TimeSpan TotalRetryDelay { get; }
     public string? RequestId { get; }
     public string? ClientRequestId { get; }
     public string? InnerErrorCode { get; }
@@ -78,7 +86,7 @@ public sealed class GraphApiException : HttpRequestException
                     if (!string.IsNullOrWhiteSpace(code) || !string.IsNullOrWhiteSpace(message))
                     {
                         var innerError = error.TryGetProperty("innerError", out var inner)
-                            ? ReadInnerError(inner)
+                            ? ReadInnerError(inner, 0)
                             : new GraphErrorDetails(null, null, null, null, null);
                         return new GraphErrorDetails(
                             code,
@@ -105,7 +113,9 @@ public sealed class GraphApiException : HttpRequestException
             null);
     }
 
-    private static GraphErrorDetails ReadInnerError(JsonElement innerError)
+    private const int MaxInnerErrorDepth = 8;
+
+    private static GraphErrorDetails ReadInnerError(JsonElement innerError, int depth)
     {
         if (innerError.ValueKind != JsonValueKind.Object)
             return new GraphErrorDetails(null, null, null, null, null);
@@ -119,6 +129,15 @@ public sealed class GraphApiException : HttpRequestException
         var clientRequestId = innerError.TryGetProperty("client-request-id", out var clientRequestIdValue)
             ? GetStringValue(clientRequestIdValue)
             : null;
+        if (depth < MaxInnerErrorDepth &&
+            innerError.TryGetProperty("innerError", out var nestedInnerError))
+        {
+            var nested = ReadInnerError(nestedInnerError, depth + 1);
+            code = nested.InnerCode ?? code;
+            requestId = nested.RequestId ?? requestId;
+            clientRequestId = nested.ClientRequestId ?? clientRequestId;
+        }
+
         return new GraphErrorDetails(null, null, code, requestId, clientRequestId);
     }
 
@@ -135,11 +154,15 @@ public sealed class GraphApiException : HttpRequestException
         TimeSpan? retryDelay,
         string? requestId,
         string? clientRequestId,
-        string? innerErrorCode)
+        string? innerErrorCode,
+        TimeSpan? retryAfter,
+        TimeSpan? totalRetryDelay)
     {
         var code = string.IsNullOrWhiteSpace(graphCode) ? "unknown" : graphCode;
         var retryDetails = isRetryable
-            ? $" after {retryCount} retries (retry timing: {retryDelay ?? TimeSpan.Zero})"
+            ? $" after {retryCount} retries; retryable=true; " +
+              $"retry-after={FormatRetryDelay(retryAfter)}; " +
+              $"total-retry-delay={totalRetryDelay ?? retryDelay ?? TimeSpan.Zero}"
             : string.Empty;
 
         var requestDetails = string.IsNullOrWhiteSpace(requestId) &&
@@ -152,6 +175,9 @@ public sealed class GraphApiException : HttpRequestException
         return $"Graph API returned {(int)statusCode} ({code}){retryDetails}: {graphMessage}.{innerDetails}{requestDetails} " +
                $"Response body: {responseBody}";
     }
+
+    private static string FormatRetryDelay(TimeSpan? retryAfter)
+        => retryAfter.HasValue ? retryAfter.Value.ToString() : "unknown";
 }
 
 public sealed record GraphErrorDetails(

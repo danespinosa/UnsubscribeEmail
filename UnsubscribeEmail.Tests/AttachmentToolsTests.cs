@@ -353,6 +353,29 @@ public class AttachmentToolsTests
     }
 
     [Fact]
+    public async Task DownloadAttachmentRejectsShortStreamAgainstDeclaredContentLength()
+    {
+        var handler = new AttachmentGraphHandler();
+        handler.EnqueueMetadataResponse("""
+        {
+          "@odata.type": "#microsoft.graph.fileAttachment",
+          "id": "short-response",
+          "name": "short.bin",
+          "contentType": "application/octet-stream",
+          "size": 3
+        }
+        """);
+        handler.EnqueueRawResponse(new byte[] { 1, 2, 3 }, "application/octet-stream", contentLength: 5);
+        var (authService, graphService) = CreateServices(handler);
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            graphService.DownloadEmailAttachmentAsync("message-1", "short-response", maxBytes: 10));
+
+        Assert.Contains("incomplete", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Content-Length declared 5", exception.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public async Task Tools_ReturnStandardErrorsWhenUnauthenticatedOrGraphFails()
     {
         var unauthenticated = new Mock<AuthService>(Mock.Of<ILogger<AuthService>>());

@@ -13,6 +13,22 @@ namespace UnsubscribeEmail.Tests;
 public sealed class ConsumerReliabilityTests
 {
     [Fact]
+    public void AuthenticatedGraphClientsPreferImmutableMessageIds()
+    {
+        var authService = new Mock<AuthService>(Mock.Of<ILogger<AuthService>>())
+        {
+            CallBase = true
+        };
+        authService.Setup(service => service.GetAccessToken()).Returns("access-token");
+
+        using var client = authService.Object.CreateAuthenticatedHttpClient();
+
+        Assert.Equal(
+            AuthService.ImmutableIdPreferenceHeaderValue,
+            client.DefaultRequestHeaders.GetValues("Prefer").Single());
+    }
+
+    [Fact]
     public async Task GetEmailContent_OmitsOrderByAndSortsNewestFirstAcrossPagesAndExclusions()
     {
         var now = DateTime.UtcNow;
@@ -56,6 +72,7 @@ public sealed class ConsumerReliabilityTests
         Assert.DoesNotContain("$search=", nextLinkQuery, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("$filter", nextLinkQuery, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("$orderby", nextLinkQuery, StringComparison.OrdinalIgnoreCase);
+        AssertImmutableIdPreference(handler.Requests);
     }
 
     [Fact]
@@ -87,6 +104,7 @@ public sealed class ConsumerReliabilityTests
         Assert.All(
             handler.Requests.Where(request => request.RequestUri!.AbsolutePath.EndsWith("/me/messages", StringComparison.Ordinal)),
             request => Assert.DoesNotContain("$filter", request.RequestUri!.Query, StringComparison.OrdinalIgnoreCase));
+        AssertImmutableIdPreference(handler.Requests);
     }
 
     [Fact]
@@ -140,6 +158,17 @@ public sealed class ConsumerReliabilityTests
     }
 
     [Fact]
+    public void GraphErrorsCaptureDeepestNestedInnerCodeAndRequestIds()
+    {
+        var details = GraphApiException.ReadError(
+            """{"error":{"code":"Outer","message":"failure","request-id":"outer-request","innerError":{"code":"Middle","client-request-id":"middle-client","innerError":{"code":"Deepest","request-id":"deep-request"}}}}""");
+
+        Assert.Equal("Deepest", details.InnerCode);
+        Assert.Equal("deep-request", details.RequestId);
+        Assert.Equal("middle-client", details.ClientRequestId);
+    }
+
+    [Fact]
     public async Task EveryMessageProducerRoundTripsOpaqueMessageIdIntoAttachmentListing()
     {
         const string messageId = "A-_/_+==%2F";
@@ -183,11 +212,27 @@ public sealed class ConsumerReliabilityTests
             await ReadEmailsTool.ReadEmails(authService.Object, graphService, daysBack: 1))!;
         var readMessageId = read.GetProperty("senders")[0].GetProperty("sampleMessageId").GetString();
 
+        handler.EnqueueMessagePage(MessagePage(CreateMessage(
+            messageId,
+            "sender@example.com",
+            "search",
+            GraphDateTime(DateTime.UtcNow.AddMinutes(-1)),
+            hasAttachments: true)));
+        var searched = JsonSerializer.Deserialize<JsonElement>(
+            await SearchEmailsTool.SearchEmails(
+                authService.Object,
+                graphService,
+                senderEmail: "sender@example.com",
+                maxEmails: 1,
+                daysBack: 1))!;
+        var searchedMessageId = searched.GetProperty("messages")[0].GetProperty("messageId").GetString();
+
         Assert.Equal(messageId, contentMessageId);
         Assert.Equal(messageId, markedMessageId);
         Assert.Equal(messageId, readMessageId);
+        Assert.Equal(messageId, searchedMessageId);
 
-        foreach (var producerMessageId in new[] { contentMessageId, markedMessageId, readMessageId })
+        foreach (var producerMessageId in new[] { contentMessageId, markedMessageId, readMessageId, searchedMessageId })
         {
             var listed = JsonSerializer.Deserialize<JsonElement>(
                 await ListEmailAttachmentsTool.ListEmailAttachments(
@@ -201,13 +246,14 @@ public sealed class ConsumerReliabilityTests
         var listRequests = handler.Requests
             .Where(request => request.RequestUri!.AbsolutePath.EndsWith("/attachments", StringComparison.Ordinal))
             .ToArray();
-        Assert.Equal(3, listRequests.Length);
+        Assert.Equal(4, listRequests.Length);
         Assert.All(listRequests, request =>
         {
             var encodedSegment = request.RequestUri!.AbsolutePath.Split('/')[^2];
             Assert.Equal(messageId, Uri.UnescapeDataString(encodedSegment));
             Assert.Equal(Uri.EscapeDataString(messageId), encodedSegment);
         });
+        AssertImmutableIdPreference(handler.Requests);
     }
 
     [Fact]
@@ -233,6 +279,7 @@ public sealed class ConsumerReliabilityTests
         var encodedSegment = patch.RequestUri!.AbsolutePath.Split('/')[^1];
         Assert.Equal(messageId, Uri.UnescapeDataString(encodedSegment));
         Assert.Equal(Uri.EscapeDataString(messageId), encodedSegment);
+        AssertImmutableIdPreference(handler.Requests);
     }
 
     [Fact]
@@ -288,6 +335,7 @@ public sealed class ConsumerReliabilityTests
             requests[2],
             StringComparison.Ordinal);
         Assert.DoesNotContain(Uri.UnescapeDataString(Uri.EscapeDataString(attachmentId)), requests[1], StringComparison.Ordinal);
+        AssertImmutableIdPreference(handler.Requests);
     }
 
     [Fact]
@@ -379,7 +427,15 @@ public sealed class ConsumerReliabilityTests
         Assert.Contains("ApplicationThrottled", message, StringComparison.Ordinal);
         Assert.Contains("Mailbox concurrency limit", message, StringComparison.Ordinal);
         Assert.Contains("after 3 retries", message, StringComparison.Ordinal);
-        Assert.Contains("retry timing", message, StringComparison.Ordinal);
+        Assert.Contains("retryable=true", message, StringComparison.Ordinal);
+        Assert.Contains("retry-after=unknown", message, StringComparison.Ordinal);
+        Assert.Contains("total-retry-delay=00:00:07", message, StringComparison.Ordinal);
+        Assert.Equal(429, json.GetProperty("statusCode").GetInt32());
+        Assert.Equal("ApplicationThrottled", json.GetProperty("code").GetString());
+        Assert.True(json.GetProperty("retryable").GetBoolean());
+        Assert.True(json.GetProperty("retryAfterSeconds").ValueKind == JsonValueKind.Null);
+        Assert.Equal(7, json.GetProperty("totalRetryDelaySeconds").GetDouble());
+        Assert.Equal(3, json.GetProperty("retryCount").GetInt32());
         Assert.Equal(
             [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(4)],
             retryDelay.Delays);
@@ -410,7 +466,10 @@ public sealed class ConsumerReliabilityTests
         Assert.Equal("error", json.GetProperty("status").GetString());
         Assert.Contains("ApplicationThrottled", message, StringComparison.Ordinal);
         Assert.Contains("after 3 retries", message, StringComparison.Ordinal);
-        Assert.Contains("00:00:21", message, StringComparison.Ordinal);
+        Assert.Contains("retry-after=00:00:07", message, StringComparison.Ordinal);
+        Assert.Contains("total-retry-delay=00:00:21", message, StringComparison.Ordinal);
+        Assert.Equal(7, json.GetProperty("retryAfterSeconds").GetDouble());
+        Assert.Equal(21, json.GetProperty("totalRetryDelaySeconds").GetDouble());
         Assert.Equal(
             [TimeSpan.FromSeconds(7), TimeSpan.FromSeconds(7), TimeSpan.FromSeconds(7)],
             retryDelay.Delays);
@@ -463,12 +522,8 @@ public sealed class ConsumerReliabilityTests
         handler.EnqueueMessagePage(
             MessagePage(
                 CreateMessage("newest", "sender@example.com", "match", GraphDateTime(now.AddHours(-1)), hasAttachments: true),
-                CreateMessage("other", "other@example.com", "other", GraphDateTime(now.AddHours(-2))),
+                CreateMessage("second", "sender@example.com", "match two", GraphDateTime(now.AddHours(-2)), hasAttachments: true),
                 nextLink: "https://graph.microsoft.com/v1.0/me/messages?page=2"));
-        handler.EnqueueMessagePage(
-            MessagePage(
-                CreateMessage("second", "sender@example.com", "match two", GraphDateTime(now.AddDays(-1)), hasAttachments: true),
-                CreateMessage("third", "sender@example.com", "match three", GraphDateTime(now.AddDays(-2)), hasAttachments: true)));
         var (authService, graphService) = CreateServices(handler);
 
         var result = await SearchEmailsTool.SearchEmails(
@@ -489,6 +544,38 @@ public sealed class ConsumerReliabilityTests
         Assert.DoesNotContain(
             handler.Requests,
             request => request.RequestUri!.AbsolutePath.Contains("/attachments", StringComparison.Ordinal));
+        Assert.Single(
+            handler.Requests,
+            request => request.RequestUri!.AbsolutePath.EndsWith("/me/messages", StringComparison.Ordinal));
+        AssertImmutableIdPreference(handler.Requests);
+    }
+
+    [Fact]
+    public async Task SearchEmailsStopsAfterOneCandidatePageForSelectiveFilters()
+    {
+        var now = DateTime.UtcNow;
+        var handler = new ReliabilityGraphHandler();
+        handler.EnqueueMessagePage(
+            MessagePage(
+                CreateMessage("non-match", "other@example.com", "other", GraphDateTime(now.AddHours(-1))),
+                nextLink: "https://graph.microsoft.com/v1.0/me/messages?page=2"));
+        var (authService, graphService) = CreateServices(handler);
+
+        var result = await SearchEmailsTool.SearchEmails(
+            authService.Object,
+            graphService,
+            senderEmail: "missing@example.com",
+            maxEmails: 5,
+            daysBack: 30);
+
+        var json = JsonSerializer.Deserialize<JsonElement>(result);
+        Assert.Equal("success", json.GetProperty("status").GetString());
+        Assert.Equal(0, json.GetProperty("messageCount").GetInt32());
+        Assert.True(json.GetProperty("hasMore").GetBoolean());
+        Assert.Single(
+            handler.Requests,
+            request => request.RequestUri!.AbsolutePath.EndsWith("/me/messages", StringComparison.Ordinal));
+        AssertImmutableIdPreference(handler.Requests);
     }
 
     private static (Mock<AuthService> AuthService, GraphEmailService GraphService) CreateServices(
@@ -500,7 +587,14 @@ public sealed class ConsumerReliabilityTests
         authService.SetupGet(service => service.IsAuthenticated).Returns(true);
         authService
             .Setup(service => service.CreateAuthenticatedHttpClient())
-            .Returns(handler.CreateClient());
+            .Returns(() =>
+            {
+                var client = handler.CreateClient();
+                client.DefaultRequestHeaders.TryAddWithoutValidation(
+                    "Prefer",
+                    AuthService.ImmutableIdPreferenceHeaderValue);
+                return client;
+            });
         return (
             authService,
             new GraphEmailService(
@@ -509,6 +603,16 @@ public sealed class ConsumerReliabilityTests
                 retryDelay,
                 timeProvider,
                 new NoOpGraphRetryJitter()));
+    }
+
+    private static void AssertImmutableIdPreference(IEnumerable<HttpRequestMessage> requests)
+    {
+        Assert.NotEmpty(requests);
+        Assert.All(
+            requests,
+            request => Assert.Equal(
+                AuthService.ImmutableIdPreferenceHeaderValue,
+                request.Headers.GetValues("Prefer").Single()));
     }
 
     private static string CreateMessage(
