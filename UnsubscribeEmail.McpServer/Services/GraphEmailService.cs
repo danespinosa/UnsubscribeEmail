@@ -11,6 +11,14 @@ namespace UnsubscribeEmail.McpServer.Services;
 /// </summary>
 public class GraphEmailService
 {
+    private const string GraphApiBaseUrl = "https://graph.microsoft.com/v1.0";
+    private const string AttachmentSelect =
+        "id,name,contentType,size,isInline,contentId,lastModifiedDateTime,sourceUrl,providerType,permission,isFolder";
+    private const int DefaultMaxAttachments = 100;
+    private const int MaxAllowedAttachments = 500;
+    private const int DefaultMaxAttachmentBytes = 4_000_000;
+    private const int MaxAllowedAttachmentBytes = 10_000_000;
+
     private readonly AuthService _authService;
     private readonly ILogger<GraphEmailService> _logger;
 
@@ -39,7 +47,8 @@ public class GraphEmailService
                     EmailCount = g.Count(),
                     UnreadCount = g.Count(e => !e.IsRead),
                     LastEmailDate = g.Max(e => e.ReceivedDateTime),
-                    SampleEmailHtmlBody = mostRecent.Body
+                    SampleEmailHtmlBody = mostRecent.Body,
+                    SampleMessageId = mostRecent.Id
                 };
             })
             .OrderByDescending(s => s.EmailCount)
@@ -214,6 +223,132 @@ public class GraphEmailService
         return results;
     }
 
+    public async Task<EmailAttachmentListResult> GetEmailAttachmentsAsync(
+        string messageId,
+        int maxAttachments = DefaultMaxAttachments)
+    {
+        ValidateIdentifier(messageId, nameof(messageId));
+        maxAttachments = Math.Clamp(maxAttachments, 1, MaxAllowedAttachments);
+
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
+        var attachments = new List<EmailAttachment>();
+        var url = BuildMessageAttachmentsUrl(messageId) + $"?$select={AttachmentSelect}";
+        var hasMore = false;
+
+        while (!string.IsNullOrEmpty(url))
+        {
+            using var response = await httpClient.GetAsync(url);
+            await EnsureGraphSuccessAsync(response);
+
+            var content = await response.Content.ReadAsStringAsync();
+            using var document = JsonDocument.Parse(content);
+            var data = document.RootElement;
+
+            if (data.TryGetProperty("value", out var attachmentsArray) &&
+                attachmentsArray.ValueKind == JsonValueKind.Array)
+            {
+                var pageHasUnprocessedItems = false;
+                foreach (var attachment in attachmentsArray.EnumerateArray())
+                {
+                    if (attachments.Count >= maxAttachments)
+                    {
+                        pageHasUnprocessedItems = true;
+                        break;
+                    }
+
+                    attachments.Add(ParseEmailAttachment(attachment, messageId));
+                }
+
+                var nextUrl = data.TryGetProperty("@odata.nextLink", out var pageNextLink)
+                    ? pageNextLink.GetString() ?? string.Empty
+                    : string.Empty;
+
+                if (pageHasUnprocessedItems)
+                {
+                    hasMore = true;
+                    break;
+                }
+
+                if (attachments.Count >= maxAttachments && !string.IsNullOrEmpty(nextUrl))
+                {
+                    hasMore = true;
+                    break;
+                }
+
+                url = nextUrl;
+                continue;
+            }
+
+            url = data.TryGetProperty("@odata.nextLink", out var nextLinkProperty)
+                ? nextLinkProperty.GetString() ?? string.Empty
+                : string.Empty;
+        }
+
+        return new EmailAttachmentListResult
+        {
+            MessageId = messageId,
+            TotalAttachments = attachments.Count,
+            HasMore = hasMore,
+            Attachments = attachments
+        };
+    }
+
+    public async Task<EmailAttachmentDownload> DownloadEmailAttachmentAsync(
+        string messageId,
+        string attachmentId,
+        int maxBytes = DefaultMaxAttachmentBytes)
+    {
+        ValidateIdentifier(messageId, nameof(messageId));
+        ValidateIdentifier(attachmentId, nameof(attachmentId));
+        maxBytes = Math.Clamp(maxBytes, 1, MaxAllowedAttachmentBytes);
+
+        var httpClient = _authService.CreateAuthenticatedHttpClient();
+        var attachment = await GetEmailAttachmentAsync(httpClient, messageId, attachmentId);
+
+        if (attachment.AttachmentType == "reference")
+        {
+            throw new InvalidOperationException(
+                $"Attachment '{attachment.AttachmentId}' on message '{attachment.MessageId}' " +
+                "is a reference attachment and cannot be downloaded because it has no message content. " +
+                "Use its sourceUrl instead.");
+        }
+
+        if (attachment.AttachmentType is not ("file" or "item"))
+        {
+            throw new InvalidOperationException(
+                $"Attachment '{attachment.AttachmentId}' on message '{attachment.MessageId}' " +
+                $"has unsupported type '{attachment.AttachmentType}' and cannot be downloaded.");
+        }
+
+        if (attachment.Size.HasValue && attachment.Size.Value > maxBytes)
+        {
+            throw new InvalidOperationException(
+                $"Attachment '{attachment.AttachmentId}' is {attachment.Size.Value} bytes, " +
+                $"which exceeds the maxBytes limit of {maxBytes}.");
+        }
+
+        var downloadUrl = BuildAttachmentUrl(messageId, attachmentId) + "/$value";
+        using var response = await httpClient.GetAsync(
+            downloadUrl,
+            HttpCompletionOption.ResponseHeadersRead);
+        await EnsureGraphSuccessAsync(response);
+
+        if (response.Content.Headers.ContentLength > maxBytes)
+        {
+            throw new InvalidOperationException(
+                $"Attachment '{attachment.AttachmentId}' content exceeds the maxBytes limit of {maxBytes}.");
+        }
+
+        var bytes = await ReadBoundedContentAsync(response.Content, maxBytes);
+        return new EmailAttachmentDownload
+        {
+            Attachment = attachment,
+            ContentType = response.Content.Headers.ContentType?.MediaType ?? attachment.ContentType,
+            DownloadedSize = bytes.LongLength,
+            Base64Content = Convert.ToBase64String(bytes)
+        };
+    }
+
     private async Task<List<EmailMessage>> FetchEmailsAsync(int daysBack, bool includeBody)
     {
         var emails = new List<EmailMessage>();
@@ -265,6 +400,28 @@ public class GraphEmailService
         return emails;
     }
 
+    private async Task<EmailAttachment> GetEmailAttachmentAsync(
+        HttpClient httpClient,
+        string messageId,
+        string attachmentId)
+    {
+        var url = BuildAttachmentUrl(messageId, attachmentId) + $"?$select={AttachmentSelect}";
+        using var response = await httpClient.GetAsync(url);
+        await EnsureGraphSuccessAsync(response);
+
+        var content = await response.Content.ReadAsStringAsync();
+        using var document = JsonDocument.Parse(content);
+        var attachment = ParseEmailAttachment(document.RootElement, messageId);
+
+        if (!string.Equals(attachment.AttachmentId, attachmentId, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException(
+                $"Graph returned attachment ID '{attachment.AttachmentId}' instead of the requested attachment ID '{attachmentId}'.");
+        }
+
+        return attachment;
+    }
+
     private static EmailMessage ParseEmailMessage(JsonElement message, bool includeBody)
     {
         var email = new EmailMessage
@@ -298,6 +455,152 @@ public class GraphEmailService
         }
 
         return email;
+    }
+
+    private static EmailAttachment ParseEmailAttachment(JsonElement attachment, string messageId)
+    {
+        var attachmentId = GetStringProperty(attachment, "id");
+        if (string.IsNullOrEmpty(attachmentId))
+            throw new InvalidOperationException("Graph attachment response did not contain an attachment ID.");
+
+        var item = attachment.TryGetProperty("item", out var itemValue) &&
+                   itemValue.ValueKind == JsonValueKind.Object
+            ? itemValue
+            : (JsonElement?)null;
+        var sourceUrl = GetStringProperty(attachment, "sourceUrl");
+        var odataType = GetStringProperty(attachment, "@odata.type");
+        var attachmentType = GetAttachmentType(odataType, attachment, item, sourceUrl);
+
+        return new EmailAttachment
+        {
+            MessageId = messageId,
+            AttachmentId = attachmentId,
+            Name = GetStringProperty(attachment, "name"),
+            ContentType = GetStringProperty(attachment, "contentType"),
+            Size = GetLongProperty(attachment, "size"),
+            IsInline = GetBoolProperty(attachment, "isInline"),
+            ContentId = GetStringProperty(attachment, "contentId"),
+            LastModifiedDateTime = GetStringProperty(attachment, "lastModifiedDateTime"),
+            AttachmentType = attachmentType,
+            DownloadSupported = attachmentType is "file" or "item",
+            SourceUrl = sourceUrl,
+            ProviderType = GetStringProperty(attachment, "providerType"),
+            Permission = GetStringProperty(attachment, "permission"),
+            IsFolder = GetBoolProperty(attachment, "isFolder"),
+            ItemId = item.HasValue ? GetStringProperty(item.Value, "id") : null,
+            ItemType = item.HasValue ? GetStringProperty(item.Value, "@odata.type") : null,
+            ItemSubject = item.HasValue ? GetStringProperty(item.Value, "subject") : null
+        };
+    }
+
+    private static string GetAttachmentType(
+        string? odataType,
+        JsonElement attachment,
+        JsonElement? item,
+        string? sourceUrl)
+    {
+        if (odataType?.EndsWith("fileAttachment", StringComparison.OrdinalIgnoreCase) == true)
+            return "file";
+        if (odataType?.EndsWith("itemAttachment", StringComparison.OrdinalIgnoreCase) == true)
+            return "item";
+        if (odataType?.EndsWith("referenceAttachment", StringComparison.OrdinalIgnoreCase) == true)
+            return "reference";
+        if (item.HasValue)
+            return "item";
+        if (!string.IsNullOrEmpty(sourceUrl))
+            return "reference";
+        if ((attachment.TryGetProperty("contentBytes", out var contentBytes) &&
+             contentBytes.ValueKind != JsonValueKind.Null &&
+             contentBytes.ValueKind != JsonValueKind.Undefined) ||
+            !string.IsNullOrEmpty(GetStringProperty(attachment, "contentId")))
+            return "file";
+
+        return "unknown";
+    }
+
+    private static string? GetStringProperty(JsonElement element, string propertyName)
+    {
+        return element.TryGetProperty(propertyName, out var value) &&
+               value.ValueKind == JsonValueKind.String
+            ? value.GetString()
+            : null;
+    }
+
+    private static long? GetLongProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind == JsonValueKind.Null ||
+            value.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var number))
+            return number;
+
+        return value.ValueKind == JsonValueKind.String &&
+               long.TryParse(value.GetString(), out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static bool? GetBoolProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind == JsonValueKind.Null ||
+            value.ValueKind == JsonValueKind.Undefined)
+        {
+            return null;
+        }
+
+        return value.ValueKind == JsonValueKind.True
+            ? true
+            : value.ValueKind == JsonValueKind.False ? false : null;
+    }
+
+    private static string BuildMessageAttachmentsUrl(string messageId)
+        => $"{GraphApiBaseUrl}/me/messages/{Uri.EscapeDataString(messageId)}/attachments";
+
+    private static string BuildAttachmentUrl(string messageId, string attachmentId)
+        => $"{BuildMessageAttachmentsUrl(messageId)}/{Uri.EscapeDataString(attachmentId)}";
+
+    private static void ValidateIdentifier(string value, string parameterName)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            throw new ArgumentException($"{parameterName} is required.", parameterName);
+    }
+
+    private static async Task<byte[]> ReadBoundedContentAsync(HttpContent content, int maxBytes)
+    {
+        await using var responseStream = await content.ReadAsStreamAsync();
+        await using var memoryStream = new MemoryStream();
+        var buffer = new byte[81920];
+        var totalBytes = 0;
+
+        int bytesRead;
+        while ((bytesRead = await responseStream.ReadAsync(buffer)) > 0)
+        {
+            if (bytesRead > maxBytes - totalBytes)
+            {
+                throw new InvalidOperationException(
+                    $"Attachment content exceeds the maxBytes limit of {maxBytes}.");
+            }
+
+            await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+            totalBytes += bytesRead;
+        }
+
+        return memoryStream.ToArray();
+    }
+
+    private static async Task EnsureGraphSuccessAsync(HttpResponseMessage response)
+    {
+        if (response.IsSuccessStatusCode)
+            return;
+
+        var errorBody = await response.Content.ReadAsStringAsync();
+        throw new HttpRequestException(
+            $"Graph API returned {(int)response.StatusCode}: {errorBody}");
     }
 
     private async Task<string?> GetFolderIdAsync(HttpClient httpClient, string folderName)

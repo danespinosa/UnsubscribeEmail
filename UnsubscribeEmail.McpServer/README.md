@@ -9,6 +9,8 @@ The MCP server lets an LLM agent:
 2. Log in to a Microsoft email account via interactive browser auth
 3. Read and aggregate emails by sender, including HTML content
 4. Fetch full email content from specific senders
+5. List attachment metadata for an exact Graph message ID
+6. Download bounded file or item attachment content as base64
 
 The LLM agent then inspects the HTML to find unsubscribe links and presents them in a table.
 
@@ -20,6 +22,9 @@ The LLM agent then inspects the HTML to find unsubscribe links and presents them
 | `login` | Interactive browser login to Microsoft account |
 | `read_emails` | Fetch emails aggregated by sender with HTML content |
 | `get_email_content` | Get full HTML body for a specific sender's emails |
+| `mark_emails_as_read` | Mark matching messages as read or preview the changes |
+| `list_email_attachments` | List bounded attachment metadata for an exact message ID |
+| `download_email_attachment` | Download a bounded file or item attachment as base64 |
 
 ## Setup
 
@@ -73,5 +78,9 @@ Add to `claude_desktop_config.json`:
 3. **Read Emails**: The LLM calls `read_emails` with a day range (e.g., 30 days) to get all emails aggregated by sender
 4. **Extract Links**: The LLM inspects the HTML content to find unsubscribe links
 5. **Deep Dive**: If needed, the LLM calls `get_email_content` for more emails from a specific sender
+6. **List Attachments**: The LLM passes the exact `messageId` from `get_email_content`, `mark_emails_as_read`, or `read_emails` to `list_email_attachments`
+7. **Download Attachment**: The LLM passes that exact `messageId` and an exact `attachmentId` from the list response to `download_email_attachment`
+
+Attachment listing returns metadata only and never includes Graph `contentBytes`. Downloaded content is bounded (4,000,000 bytes by default and 10,000,000 bytes maximum) and returned in the `base64Content` field with the response MIME type. File and item attachments use Graph's `/$value` endpoint; reference attachments are reported but rejected for download because they expose a URL rather than message content. `get_email_content` retains its legacy `Id` property and also returns additive camel-case `messageId`; `read_emails` returns `sampleMessageId` for the message represented by each sample body.
 
 The LLM will then present a formatted table of senders and their unsubscribe links.

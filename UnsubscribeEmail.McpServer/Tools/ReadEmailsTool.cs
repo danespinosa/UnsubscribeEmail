@@ -11,7 +11,7 @@ public class ReadEmailsTool
     [McpServerTool(Name = "read_emails"), Description(
         "Read all emails from the specified number of days back, aggregated by sender. " +
         "Returns sender email, sender name, email count, unread count, last email date, " +
-        "and the HTML body content of the most recent email from each sender. " +
+        "the stable message ID and HTML body content of the most recent email from each sender. " +
         "Common values for daysBack: 1, 7, 30, 60, 90, 365. " +
         "You must be logged in first (call 'login' tool). " +
         "The LLM should inspect the HTML content to find unsubscribe links.")]
@@ -52,6 +52,7 @@ public class ReadEmailsTool
                     s.EmailCount,
                     s.UnreadCount,
                     lastEmailDate = s.LastEmailDate?.ToString("yyyy-MM-dd HH:mm:ss"),
+                    sampleMessageId = s.SampleMessageId,
                     sampleEmailHtmlBody = s.SampleEmailHtmlBody
                 })
             }, new JsonSerializerOptions { WriteIndented = false });

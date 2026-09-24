@@ -13,7 +13,9 @@ public class GetEmailContentTool
     [McpServerTool(Name = "get_email_content"), Description(
         "Get the full HTML body content of emails from a specific sender. " +
         "Use this to inspect email content for unsubscribe links when the sample " +
-        "from read_emails wasn't sufficient. You must be logged in first (call 'login' tool).")]
+        "from read_emails wasn't sufficient. Each email retains the legacy Id field " +
+        "and also returns the additive camel-case messageId for attachment tools. " +
+        "You must be logged in first (call 'login' tool).")]
     public static async Task<string> GetEmailContent(
         AuthService authService,
         GraphEmailService graphService,
@@ -54,6 +56,7 @@ public class GetEmailContentTool
                 emails = emails.Select(e => new
                 {
                     e.Id,
+                    messageId = e.Id,
                     e.Subject,
                     receivedDateTime = e.ReceivedDateTime.ToString("yyyy-MM-dd HH:mm:ss"),
                     e.IsRead,

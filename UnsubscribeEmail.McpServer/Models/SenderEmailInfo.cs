@@ -9,4 +9,5 @@ public class SenderEmailInfo
     public int UnreadCount { get; set; }
     public DateTime? LastEmailDate { get; set; }
     public string? SampleEmailHtmlBody { get; set; }
+    public string? SampleMessageId { get; set; }
 }

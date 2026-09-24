@@ -30,7 +30,7 @@ public class LoginTool
             {
                 status = "authenticated",
                 userEmail,
-                message = $"Successfully logged in as {userEmail}. You can now use 'read_emails' and 'get_email_content' tools."
+                message = $"Successfully logged in as {userEmail}. You can now use 'read_emails', 'get_email_content', 'list_email_attachments', and 'download_email_attachment' tools."
             });
         }
         catch (Exception ex)
