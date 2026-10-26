@@ -251,6 +251,29 @@ The test suite includes:
 - 27 unit tests for regex extraction and service logic
 - 9 integration tests for Phi-3 model (when available)
 
+## Windows VM deployment
+
+Publish `UnsubscribeEmail\UnsubscribeEmail.csproj` for `win-x64` with
+`--self-contained false`. The production VM uses the existing Mail scheduled
+task and port 5006. Install the latest stable .NET 10 runtime on the host before
+restarting the app.
+
+The web project uses the CPU ONNX Runtime/GenAI packages. Do not add the CUDA
+GenAI package alongside them: it supplies conflicting native DLLs and causes
+duplicate publish outputs. Keep the external model's provider configuration
+compatible with the CPU runtime.
+
+Before deploying, back up the full application and export the exact scheduled
+task. Preserve production `appsettings*.json`, `web.config`, `FailedEmails`, all
+generated data, the external Phi-3 model, and the task account's Data Protection
+keys. Exclude sample FailedEmails and publish-time configuration from the
+overlay. Keep the task identity, action, arguments, and working directory.
+Restarting clears in-memory job/token state; wait for active work to finish.
+
+Verify HTTP, a single Mail process/listener, and its loaded .NET runtime after
+restart. On startup failure, restore the previous application files without
+discarding production state.
+
 ## Security Notes
 
 - ✅ OAuth 2.0 authentication - no password storage
@@ -291,4 +314,3 @@ The test suite includes:
 ## Contributing
 
 Contributions are welcome! Please open an issue or submit a pull request.
-
