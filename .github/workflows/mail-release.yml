@@ -1,0 +1,69 @@
+name: Publish Mail release
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet test UnsubscribeEmail.Tests/UnsubscribeEmail.Tests.csproj --configuration Release
+      - name: Publish and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          dotnet publish UnsubscribeEmail/UnsubscribeEmail.csproj \
+            --configuration Release --runtime linux-x64 --self-contained false \
+            --output "$RUNNER_TEMP/mail-publish"
+          publish="$RUNNER_TEMP/mail-publish"
+          find "$publish" -type f -iname 'appsettings*.json' ! -path "$publish/appsettings.json" -delete
+          find "$publish" -type d -name FailedEmails -prune -exec rm -rf -- {} +
+          cmp UnsubscribeEmail/appsettings.json "$publish/appsettings.json"
+          jq -e '
+            (.AzureAd.ClientSecret == "") and
+            (.AzureAd.ClientId == "") and
+            (.AzureAd.TenantId == "") and
+            ([paths(scalars) as $p |
+              select(($p[-1] | tostring | test("secret|password|token|apikey|api_key"; "i")) and
+                (getpath($p) != "" and getpath($p) != null))] | length == 0)
+          ' "$publish/appsettings.json" > /dev/null
+          test -f "$publish/UnsubscribeEmail.dll"
+          tar -C "$publish" -czf "$RUNNER_TEMP/mail-linux-x64.tar.gz" .
+          cd "$RUNNER_TEMP"
+          sha256sum mail-linux-x64.tar.gz > mail-linux-x64.tar.gz.sha256
+          sha256sum -c mail-linux-x64.tar.gz.sha256
+      - name: Create immutable release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: mail-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/$GITHUB_REPOSITORY/git/refs" \
+            -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft --latest=false \
+            --title "Mail $GITHUB_SHA" --notes "Source commit: $GITHUB_SHA" \
+            "$RUNNER_TEMP/mail-linux-x64.tar.gz" "$RUNNER_TEMP/mail-linux-x64.tar.gz.sha256"
+          gh release edit "$TAG" --repo "$GITHUB_REPOSITORY" --draft=false
+          immutable="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG" --jq '.immutable')"
+          if [[ "$immutable" != "true" ]]; then
+            echo "::error::GitHub did not report the published release as immutable."
+            exit 1
+          fi
+          {
+            echo "Mail source commit: $GITHUB_SHA"
+            echo "Release tag: $TAG"
+            cat "$RUNNER_TEMP/mail-linux-x64.tar.gz.sha256"
+          } >> "$GITHUB_STEP_SUMMARY"
