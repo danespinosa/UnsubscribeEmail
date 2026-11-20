@@ -274,6 +274,38 @@ Verify HTTP, a single Mail process/listener, and its loaded .NET runtime after
 restart. On startup failure, restore the previous application files without
 discarding production state.
 
+## Linux candidate artifact
+
+On each push to `main`, `.github/workflows/mail-release.yml` tests the projects
+and publishes the web app as a framework-dependent `linux-x64` release.
+Its tag is `mail-<full commit SHA>` and its assets are `mail-linux-x64.tar.gz`
+(publish output at the archive root) and `mail-linux-x64.tar.gz.sha256` (one
+standard `sha256sum` line). The workflow summary records the source commit and
+artifact checksum for the downstream build.
+
+The archive retains the tracked `appsettings.json` defaults, including Graph
+scopes, but excludes environment-specific settings and `FailedEmails`.
+The workflow rejects nonempty Azure AD credentials and common secret fields in
+the default settings; secrets must be provided at runtime, never in the release.
+The optional Phi-3 model is not included.
+
+Enable **immutable releases** in this repository before running the workflow.
+The workflow creates a new tag and draft, uploads both assets, publishes, and
+verifies that GitHub reports the release as immutable. The settings API requires
+repository admin access, so the workflow's limited token cannot check the
+setting before publication. If immutability is disabled, a mutable release
+may be published and the job will fail: do not use that release for a build.
+It never overwrites an existing tag or asset. If a failure leaves a tag or
+draft behind, investigate and recover manually; do not replace assets of a
+published release. Repository settings are not changed by the workflow.
+
+Queue the Azure DevOps candidate build with the release's full source commit as
+`mailSourceCommit` and the archive's SHA-256 as `mailArtifactSha256`. That
+build downloads the exact public release and verifies its checksum. Configure
+Azure AD values and other environment-specific settings at runtime through the
+downstream deployment environment; do not bake credentials into the image.
+Building the candidate does not promote or deploy it to production.
+
 ## Security Notes
 
 - ✅ OAuth 2.0 authentication - no password storage
